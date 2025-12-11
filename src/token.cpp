@@ -1,0 +1,35 @@
+#include "../include/token.h"
+
+Token::Token(TokenType type, const std::string& value, int line, int column)
+    : type_(type), value_(value), line_(line), column_(column) {
+}
+
+std::string Token::toString() const {
+    return "Token(" + typeToString(type_) +
+           (value_.empty() ? "" : ", \"" + value_ + "\"") +
+           ", line=" + std::to_string(line_) +
+           ", col=" + std::to_string(column_) + ")";
+}
+
+std::string Token::typeToString(TokenType type) {
+    switch (type) {
+        case TokenType::Number:   return "Number";
+        case TokenType::Plus:     return "Plus";
+        case TokenType::Minus:    return "Minus";
+        case TokenType::Multiply: return "Multiply";
+        case TokenType::Divide:   return "Divide";
+        case TokenType::End:      return "End";
+        case TokenType::Invalid:  return "Invalid";
+        default:                  return "Unknown";
+    }
+}
+
+std::ostream& operator<<(std::ostream& os, const Token& token) {
+    os << token.toString();
+    return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const TokenType& type) {
+    os << Token::typeToString(type);
+    return os;
+}
