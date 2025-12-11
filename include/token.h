@@ -36,6 +36,11 @@ enum class TokenType {
     Greater,        // >
     GreaterEqual,   // >=
 
+    // 逻辑运算符
+    LogicalAnd,     // &&
+    LogicalOr,      // ||
+    LogicalNot,     // !
+
     // 关键字
     Int,            // int
     Return,         // return

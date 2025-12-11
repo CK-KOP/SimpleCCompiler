@@ -29,6 +29,9 @@ std::string Token::typeToString(TokenType type) {
         case TokenType::LessEqual:   return "LessEqual";
         case TokenType::Greater:     return "Greater";
         case TokenType::GreaterEqual:return "GreaterEqual";
+        case TokenType::LogicalAnd: return "LogicalAnd";
+        case TokenType::LogicalOr:  return "LogicalOr";
+        case TokenType::LogicalNot: return "LogicalNot";
         case TokenType::Int:       return "Int";
         case TokenType::Return:    return "Return";
         case TokenType::Identifier:return "Identifier";

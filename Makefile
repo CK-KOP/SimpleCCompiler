@@ -62,8 +62,12 @@ examples: $(EXAMPLE_BINS)
 	done
 
 # 运行演示程序
-run-demo: $(BUILDDIR)/lexer_demo
-	./$(BUILDDIR)/lexer_demo
+run-demo: $(EXAMPLE_BINS)
+	@for demo in $(EXAMPLE_BINS); do \
+		echo "运行 $$demo..."; \
+		$$demo; \
+		echo "---"; \
+	done
 
 # 清理
 clean:

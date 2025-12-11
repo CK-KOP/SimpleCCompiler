@@ -48,8 +48,8 @@ public:
     // 跳过单行注释
     void skipSingleLineComment();
 
-    // 读取双字符运算符
-    Token readDoubleCharOperator(TokenType type);
+    // 读取多字符运算符（统一处理 =, ==, !, !=, &&, || 等）
+    Token readMultiCharOperator(TokenType type);
 
     // 检查字符串是否是关键字
     bool isKeyword(const std::string& str);

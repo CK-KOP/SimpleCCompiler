@@ -101,25 +101,22 @@ Token Lexer::getNextToken() {
 
         // 双字符运算符
         case '=': {
-            return readDoubleCharOperator(TokenType::Assign);
+            return readMultiCharOperator(TokenType::Assign);
         }
         case '!': {
-            int token_line = line_;
-            int token_column = column_;
-            advance(); // 先消费'!'
-            if (getCurrentChar() == '=') {
-                advance(); // 消费'='
-                return Token(TokenType::NotEqual, "!=", token_line, token_column);
-            } else {
-                // 单独'!'暂时是未知字符
-                return Token(TokenType::Invalid, "未知字符: '!'", token_line, token_column);
-            }
+            return readMultiCharOperator(TokenType::LogicalNot);
         }
         case '<': {
-            return readDoubleCharOperator(TokenType::Less);
+            return readMultiCharOperator(TokenType::Less);
         }
         case '>': {
-            return readDoubleCharOperator(TokenType::Greater);
+            return readMultiCharOperator(TokenType::Greater);
+        }
+        case '&': {
+            return readMultiCharOperator(TokenType::LogicalAnd);
+        }
+        case '|': {
+            return readMultiCharOperator(TokenType::LogicalOr);
         }
 
         default:
@@ -236,41 +233,66 @@ void Lexer::skipSingleLineComment() {
     }
 }
 
-Token Lexer::readDoubleCharOperator(TokenType type) {
+// 统一读取多字符运算符（处理 =, ==, !, !=, <, <=, >, >=, &, &&, |, ||）
+Token Lexer::readMultiCharOperator(TokenType type) {
     int token_line = line_;
     int token_column = column_;
     advance(); // 消费第一个字符
 
-    if (getCurrentChar() == '=') {
-        advance(); // 消费第二个字符
+    char second_char = getCurrentChar();
 
-        switch (type) {
-            case TokenType::Assign:
+    switch (type) {
+        case TokenType::Assign:           // = 或 ==
+            if (second_char == '=') {
+                advance(); // 消费=
                 return Token(TokenType::Equal, "==", token_line, token_column);
-            case TokenType::Less:
-                return Token(TokenType::LessEqual, "<=", token_line, token_column);
-            case TokenType::Greater:
-                return Token(TokenType::GreaterEqual, ">=", token_line, token_column);
-            case TokenType::NotEqual:
-                return Token(TokenType::NotEqual, "!=", token_line, token_column);
-            default:
-                break;
-        }
-    } else {
-        // 单字符运算符
-        switch (type) {
-            case TokenType::Assign:
+            } else {
                 return Token(TokenType::Assign, "=", token_line, token_column);
-            case TokenType::Less:
-                return Token(TokenType::Less, "<", token_line, token_column);
-            case TokenType::Greater:
-                return Token(TokenType::Greater, ">", token_line, token_column);
-            default:
-                break; // 对于!=，不应该到达这里
-        }
-    }
+            }
 
-    return Token(TokenType::Invalid, "无效运算符", token_line, token_column);
+        case TokenType::LogicalNot:       // ! 或 !=
+            if (second_char == '=') {
+                advance(); // 消费=
+                return Token(TokenType::NotEqual, "!=", token_line, token_column);
+            } else {
+                return Token(TokenType::LogicalNot, "!", token_line, token_column);
+            }
+
+        case TokenType::Less:             // < 或 <=
+            if (second_char == '=') {
+                advance(); // 消费=
+                return Token(TokenType::LessEqual, "<=", token_line, token_column);
+            } else {
+                return Token(TokenType::Less, "<", token_line, token_column);
+            }
+
+        case TokenType::Greater:          // > 或 >=
+            if (second_char == '=') {
+                advance(); // 消费=
+                return Token(TokenType::GreaterEqual, ">=", token_line, token_column);
+            } else {
+                return Token(TokenType::Greater, ">", token_line, token_column);
+            }
+
+        case TokenType::LogicalAnd:       // &&
+            if (second_char == '&') {
+                advance(); // 消费&
+                return Token(TokenType::LogicalAnd, "&&", token_line, token_column);
+            } else {
+                return Token(TokenType::Invalid, "无效运算符", token_line, token_column);
+            }
+
+        case TokenType::LogicalOr:        // ||
+            if (second_char == '|') {
+                advance(); // 消费|
+                return Token(TokenType::LogicalOr, "||", token_line, token_column);
+            } else {
+                return Token(TokenType::Invalid, "无效运算符", token_line, token_column);
+            }
+
+        default:
+            return Token(TokenType::Invalid, "无效运算符", token_line, token_column);
+    }
 }
 
 bool Lexer::isKeyword(const std::string& str) {
@@ -296,3 +318,4 @@ std::string Lexer::loadFromFile(const char* filename) {
     buffer << file.rdbuf();
     return buffer.str();
 }
+
