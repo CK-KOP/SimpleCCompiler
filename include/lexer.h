@@ -42,6 +42,21 @@ public:
     // 读取数字Token
     Token readNumber();
 
+    // 读取标识符Token
+    Token readIdentifier();
+
+    // 跳过单行注释
+    void skipSingleLineComment();
+
+    // 读取双字符运算符
+    Token readDoubleCharOperator(TokenType type);
+
+    // 检查字符串是否是关键字
+    bool isKeyword(const std::string& str);
+
+    // 获取关键字对应的Token类型
+    TokenType getKeywordType(const std::string& str);
+
     // 重置词法分析器到开始位置
     void reset();
 

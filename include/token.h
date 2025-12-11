@@ -19,6 +19,30 @@ enum class TokenType {
     Multiply,       // *
     Divide,         // /
 
+    // 括号
+    LParen,         // (
+    RParen,         // )
+
+    // 分隔符
+    Semicolon,      // ;
+    Comma,          // ,
+
+    // 赋值和比较运算符
+    Assign,         // =
+    Equal,          // ==
+    NotEqual,       // !=
+    Less,           // <
+    LessEqual,      // <=
+    Greater,        // >
+    GreaterEqual,   // >=
+
+    // 关键字
+    Int,            // int
+    Return,         // return
+
+    // 标识符
+    Identifier,     // 变量名、函数名等
+
     // 特殊Token
     End,            // 输入结束
     Invalid         // 无效字符
