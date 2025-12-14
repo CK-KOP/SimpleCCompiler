@@ -1,6 +1,8 @@
 #include "include/lexer.h"
 #include "include/parser.h"
 #include "include/sema.h"
+#include "include/codegen.h"
+#include "include/vm.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -11,7 +13,10 @@ void printUsage(const char* program) {
     std::cout << "选项:\n";
     std::cout << "  -l, --lexer   仅进行词法分析\n";
     std::cout << "  -p, --parser  仅进行语法分析\n";
-    std::cout << "  -s, --sema    进行语义分析（默认）\n";
+    std::cout << "  -s, --sema    进行语义分析\n";
+    std::cout << "  -r, --run     编译并运行（默认）\n";
+    std::cout << "  -c, --code    显示生成的字节码\n";
+    std::cout << "  -d, --debug   调试模式运行\n";
     std::cout << "  -h, --help    显示帮助信息\n";
 }
 
@@ -96,7 +101,7 @@ void runSema(const std::string& source) {
     }
 }
 
-enum class Mode { Lexer, Parser, Sema };
+enum class Mode { Lexer, Parser, Sema, Run, Code };
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -105,7 +110,8 @@ int main(int argc, char* argv[]) {
     }
 
     std::string filename;
-    Mode mode = Mode::Sema;  // 默认语义分析
+    Mode mode = Mode::Run;  // 默认编译运行
+    bool debug = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -118,6 +124,12 @@ int main(int argc, char* argv[]) {
             mode = Mode::Parser;
         } else if (arg == "-s" || arg == "--sema") {
             mode = Mode::Sema;
+        } else if (arg == "-r" || arg == "--run") {
+            mode = Mode::Run;
+        } else if (arg == "-c" || arg == "--code") {
+            mode = Mode::Code;
+        } else if (arg == "-d" || arg == "--debug") {
+            debug = true;
         } else if (arg[0] != '-') {
             filename = arg;
         }
@@ -147,9 +159,40 @@ int main(int argc, char* argv[]) {
             case Mode::Sema:
                 runSema(source);
                 break;
+            case Mode::Run:
+            case Mode::Code: {
+                Lexer lexer(source);
+                Parser parser(lexer);
+                auto program = parser.parseProgram();
+
+                Sema sema;
+                if (!sema.analyze(program.get())) {
+                    std::cout << "✗ 发现 " << sema.getErrors().size() << " 个语义错误:\n";
+                    for (const auto& err : sema.getErrors()) {
+                        std::cout << "  错误: " << err.message << "\n";
+                    }
+                    return 1;
+                }
+
+                CodeGen codegen;
+                ByteCode bytecode = codegen.generate(program.get());
+
+                if (mode == Mode::Code) {
+                    std::cout << "=== 生成的字节码 ===\n\n";
+                    std::cout << bytecode.toString();
+                    std::cout << "\n入口点: " << bytecode.entry_point << "\n";
+                } else {
+                    std::cout << "=== 运行程序 ===\n\n";
+                    VM vm;
+                    vm.setDebug(debug);
+                    int result = vm.execute(bytecode);
+                    std::cout << "\n程序返回值: " << result << "\n";
+                }
+                break;
+            }
         }
 
-        std::cout << "\n✓ 分析完成\n";
+        std::cout << "\n✓ 完成\n";
     } catch (const std::exception& e) {
         std::cerr << "错误: " << e.what() << std::endl;
         return 1;
