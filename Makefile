@@ -6,8 +6,8 @@ TESTDIR = tests
 BUILDDIR = build
 
 # 核心源文件
-CORE_SRC = $(SRCDIR)/lexer.cpp $(SRCDIR)/parser.cpp $(SRCDIR)/token.cpp
-CORE_OBJ = $(BUILDDIR)/lexer.o $(BUILDDIR)/parser.o $(BUILDDIR)/token.o
+CORE_SRC = $(SRCDIR)/lexer.cpp $(SRCDIR)/parser.cpp $(SRCDIR)/token.cpp $(SRCDIR)/type.cpp $(SRCDIR)/sema.cpp
+CORE_OBJ = $(BUILDDIR)/lexer.o $(BUILDDIR)/parser.o $(BUILDDIR)/token.o $(BUILDDIR)/type.o $(BUILDDIR)/sema.o
 
 # 测试文件列表
 TEST_FILES = $(wildcard $(TESTDIR)/test_*.cpp)
@@ -36,6 +36,12 @@ $(BUILDDIR)/parser.o: $(SRCDIR)/parser.cpp | $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILDDIR)/token.o: $(SRCDIR)/token.cpp | $(BUILDDIR)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILDDIR)/type.o: $(SRCDIR)/type.cpp | $(BUILDDIR)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(BUILDDIR)/sema.o: $(SRCDIR)/sema.cpp | $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 # 链接主程序

@@ -8,11 +8,14 @@
 # 构建
 make
 
-# 分析源文件
+# 语义分析（默认）
 ./build/simplec examples/demo.c
 
 # 仅词法分析
 ./build/simplec examples/demo.c -l
+
+# 仅语法分析
+./build/simplec examples/demo.c -p
 
 # 运行测试
 make test
@@ -83,6 +86,36 @@ int main() {
   - int add(int a, int b)
   - int factorial(int n)
   - int main()
+
+进行语义检查...
+✓ 语义检查通过
+```
+
+### 语义分析 (Sema)
+
+**类型系统**:
+- 基本类型: `int`, `void`
+- 函数类型: 返回类型 + 参数列表
+
+**符号表**:
+- 作用域管理（全局、函数、块级）
+- 变量、函数、参数的符号注册
+
+**语义检查**:
+- 变量重复声明检测
+- 未声明变量/函数检测
+- 函数参数数量匹配
+- 返回值类型检查（void 函数不应返回值，非 void 函数应返回值）
+
+**错误检测示例**:
+```c
+int main() {
+    int x = 10;
+    int x = 20;         // 错误：变量重复声明
+    y = 30;             // 错误：未声明的变量
+    int z = foo(1, 2);  // 错误：未声明的函数
+    return;             // 错误：非void函数应返回值
+}
 ```
 
 ## 项目结构
@@ -95,17 +128,23 @@ SimpleCCompiler/
 │   ├── token.h         # Token 定义
 │   ├── lexer.h         # 词法分析器
 │   ├── ast.h           # AST 节点定义
-│   └── parser.h        # 语法分析器
+│   ├── parser.h        # 语法分析器
+│   ├── type.h          # 类型系统
+│   ├── scope.h         # 符号表和作用域
+│   └── sema.h          # 语义分析器
 ├── src/                # 源文件
 │   ├── token.cpp
 │   ├── lexer.cpp
-│   └── parser.cpp
+│   ├── parser.cpp
+│   ├── type.cpp
+│   └── sema.cpp
 ├── tests/              # 测试文件
 │   ├── test_lexer.cpp
 │   ├── test_parser.cpp
 │   └── test_function.cpp
 └── examples/           # 示例代码
-    └── demo.c
+    ├── demo.c          # 正确示例
+    └── error_test.c    # 语义错误测试
 ```
 
 ## AST 节点类型
@@ -145,10 +184,12 @@ SimpleCCompiler/
 - [x] 表达式解析
 - [x] 语句解析
 - [x] 函数定义和调用
+- [x] 类型系统
+- [x] 符号表和作用域
+- [x] 语义分析
 - [ ] 数组支持
 - [ ] 指针支持
 - [ ] 结构体支持
-- [ ] 语义分析 (类型检查)
 - [ ] 代码生成
 
 ## 构建要求

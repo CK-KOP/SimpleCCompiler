@@ -1,0 +1,268 @@
+#include "../include/sema.h"
+
+std::shared_ptr<Type> Sema::stringToType(const std::string& type_name) {
+    if (type_name == "int") return Type::getIntType();
+    if (type_name == "void") return Type::getVoidType();
+    return nullptr;
+}
+
+bool Sema::analyze(ProgramNode* program) {
+    for (const auto& func : program->getFunctions()) {
+        analyzeFunction(func.get());
+    }
+    return !hasErrors();
+}
+
+void Sema::analyzeFunction(FunctionDeclNode* func) {
+    // 获取返回类型
+    auto return_type = stringToType(func->getReturnType());
+    if (!return_type) {
+        error("未知的返回类型: " + func->getReturnType());
+        return;
+    }
+
+    // 构建函数类型
+    std::vector<FunctionType::Param> params;
+    for (const auto& param : func->getParams()) {
+        auto param_type = stringToType(param.type);
+        if (!param_type) {
+            error("未知的参数类型: " + param.type);
+            return;
+        }
+        params.emplace_back(param_type, param.name);
+    }
+    auto func_type = std::make_shared<FunctionType>(return_type, params);
+
+    // 检查函数是否重复定义
+    if (scope_.findSymbolInCurrentScope(func->getName())) {
+        error("函数重复定义: " + func->getName());
+        return;
+    }
+
+    // 添加函数到符号表
+    scope_.addSymbol(func->getName(), func_type, SymbolKind::Function);
+
+    // 进入函数作用域
+    scope_.enterScope();
+    current_function_return_type_ = return_type;
+
+    // 添加参数到作用域
+    for (const auto& param : func->getParams()) {
+        auto param_type = stringToType(param.type);
+        if (!scope_.addSymbol(param.name, param_type, SymbolKind::Parameter)) {
+            error("参数名重复: " + param.name);
+        }
+    }
+
+    // 分析函数体
+    analyzeCompoundStatement(func->getBody());
+
+    // 退出函数作用域
+    current_function_return_type_ = nullptr;
+    scope_.exitScope();
+}
+
+void Sema::analyzeStatement(StmtNode* stmt) {
+    if (auto* compound = dynamic_cast<CompoundStmtNode*>(stmt)) {
+        scope_.enterScope();
+        analyzeCompoundStatement(compound);
+        scope_.exitScope();
+    } else if (auto* var_decl = dynamic_cast<VarDeclStmtNode*>(stmt)) {
+        analyzeVarDecl(var_decl);
+    } else if (auto* ret_stmt = dynamic_cast<ReturnStmtNode*>(stmt)) {
+        analyzeReturnStatement(ret_stmt);
+    } else if (auto* if_stmt = dynamic_cast<IfStmtNode*>(stmt)) {
+        analyzeIfStatement(if_stmt);
+    } else if (auto* while_stmt = dynamic_cast<WhileStmtNode*>(stmt)) {
+        analyzeWhileStatement(while_stmt);
+    } else if (auto* for_stmt = dynamic_cast<ForStmtNode*>(stmt)) {
+        analyzeForStatement(for_stmt);
+    } else if (auto* do_while = dynamic_cast<DoWhileStmtNode*>(stmt)) {
+        analyzeDoWhileStatement(do_while);
+    } else if (auto* expr_stmt = dynamic_cast<ExprStmtNode*>(stmt)) {
+        analyzeExprStatement(expr_stmt);
+    }
+    // EmptyStmtNode, BreakStmtNode, ContinueStmtNode 不需要语义检查
+}
+
+void Sema::analyzeCompoundStatement(CompoundStmtNode* stmt) {
+    for (const auto& s : stmt->getStatements()) {
+        analyzeStatement(s.get());
+    }
+}
+
+void Sema::analyzeVarDecl(VarDeclStmtNode* stmt) {
+    auto var_type = stringToType(stmt->getType());
+    if (!var_type) {
+        error("未知的变量类型: " + stmt->getType());
+        return;
+    }
+
+    if (var_type->isVoid()) {
+        error("变量不能声明为 void 类型: " + stmt->getName());
+        return;
+    }
+
+    // 检查是否重复声明
+    if (scope_.findSymbolInCurrentScope(stmt->getName())) {
+        error("变量重复声明: " + stmt->getName());
+        return;
+    }
+
+    // 添加到符号表
+    scope_.addSymbol(stmt->getName(), var_type, SymbolKind::Variable);
+
+    // 分析初始化表达式
+    if (stmt->hasInitializer()) {
+        analyzeExpression(stmt->getInitializer());
+    }
+}
+
+void Sema::analyzeReturnStatement(ReturnStmtNode* stmt) {
+    if (!current_function_return_type_) {
+        error("return 语句不在函数内");
+        return;
+    }
+
+    if (stmt->hasExpression()) {
+        auto expr_type = analyzeExpression(stmt->getExpression());
+        if (current_function_return_type_->isVoid()) {
+            error("void 函数不应返回值");
+        }
+    } else {
+        if (!current_function_return_type_->isVoid()) {
+            error("非 void 函数应返回值");
+        }
+    }
+}
+
+void Sema::analyzeIfStatement(IfStmtNode* stmt) {
+    analyzeExpression(stmt->getCondition());
+    analyzeStatement(stmt->getThenStmt());
+
+    for (const auto& else_if : stmt->getElseIfs()) {
+        analyzeExpression(else_if->condition.get());
+        analyzeStatement(else_if->statement.get());
+    }
+
+    if (stmt->hasElseStmt()) {
+        analyzeStatement(stmt->getElseStmt());
+    }
+}
+
+void Sema::analyzeWhileStatement(WhileStmtNode* stmt) {
+    analyzeExpression(stmt->getCondition());
+    analyzeStatement(stmt->getBody());
+}
+
+void Sema::analyzeForStatement(ForStmtNode* stmt) {
+    scope_.enterScope();
+
+    if (stmt->hasInit()) {
+        analyzeStatement(stmt->getInit());
+    }
+    if (stmt->hasCondition()) {
+        analyzeExpression(stmt->getCondition());
+    }
+    if (stmt->hasIncrement()) {
+        analyzeExpression(stmt->getIncrement());
+    }
+    analyzeStatement(stmt->getBody());
+
+    scope_.exitScope();
+}
+
+void Sema::analyzeDoWhileStatement(DoWhileStmtNode* stmt) {
+    analyzeStatement(stmt->getBody());
+    analyzeExpression(stmt->getCondition());
+}
+
+void Sema::analyzeExprStatement(ExprStmtNode* stmt) {
+    analyzeExpression(stmt->getExpression());
+}
+
+std::shared_ptr<Type> Sema::analyzeExpression(ExprNode* expr) {
+    if (auto* num = dynamic_cast<NumberNode*>(expr)) {
+        return Type::getIntType();
+    }
+    if (auto* var = dynamic_cast<VariableNode*>(expr)) {
+        return analyzeVariable(var);
+    }
+    if (auto* binary = dynamic_cast<BinaryOpNode*>(expr)) {
+        return analyzeBinaryOp(binary);
+    }
+    if (auto* unary = dynamic_cast<UnaryOpNode*>(expr)) {
+        return analyzeUnaryOp(unary);
+    }
+    if (auto* call = dynamic_cast<FunctionCallNode*>(expr)) {
+        return analyzeFunctionCall(call);
+    }
+    return Type::getIntType();  // 默认
+}
+
+std::shared_ptr<Type> Sema::analyzeVariable(VariableNode* expr) {
+    auto symbol = scope_.findSymbol(expr->getName());
+    if (!symbol) {
+        error("未声明的变量: " + expr->getName());
+        return Type::getIntType();
+    }
+
+    if (symbol->isFunction()) {
+        // 函数名作为表达式使用（函数指针，暂不支持）
+        return symbol->getType();
+    }
+
+    return symbol->getType();
+}
+
+std::shared_ptr<Type> Sema::analyzeBinaryOp(BinaryOpNode* expr) {
+    auto left_type = analyzeExpression(expr->getLeft());
+    auto right_type = analyzeExpression(expr->getRight());
+
+    // 赋值运算符：左边必须是变量
+    if (expr->getOperator() == TokenType::Assign) {
+        if (!dynamic_cast<VariableNode*>(expr->getLeft())) {
+            error("赋值运算符左边必须是变量");
+        }
+    }
+
+    // 简化：所有二元运算返回 int
+    return Type::getIntType();
+}
+
+std::shared_ptr<Type> Sema::analyzeUnaryOp(UnaryOpNode* expr) {
+    analyzeExpression(expr->getOperand());
+    return Type::getIntType();
+}
+
+std::shared_ptr<Type> Sema::analyzeFunctionCall(FunctionCallNode* expr) {
+    auto symbol = scope_.findSymbol(expr->getName());
+    if (!symbol) {
+        error("未声明的函数: " + expr->getName());
+        return Type::getIntType();
+    }
+
+    if (!symbol->isFunction()) {
+        error("'" + expr->getName() + "' 不是函数");
+        return Type::getIntType();
+    }
+
+    auto func_type = std::dynamic_pointer_cast<FunctionType>(symbol->getType());
+    if (!func_type) {
+        return Type::getIntType();
+    }
+
+    // 检查参数数量
+    if (expr->getArgs().size() != func_type->getParams().size()) {
+        error("函数 '" + expr->getName() + "' 参数数量不匹配: 期望 " +
+              std::to_string(func_type->getParams().size()) + " 个，实际 " +
+              std::to_string(expr->getArgs().size()) + " 个");
+    }
+
+    // 分析每个参数
+    for (const auto& arg : expr->getArgs()) {
+        analyzeExpression(arg.get());
+    }
+
+    return func_type->getReturnType();
+}

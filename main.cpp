@@ -1,5 +1,6 @@
-#include "../include/lexer.h"
-#include "../include/parser.h"
+#include "include/lexer.h"
+#include "include/parser.h"
+#include "include/sema.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -9,7 +10,8 @@ void printUsage(const char* program) {
     std::cout << "用法: " << program << " <源文件> [选项]\n\n";
     std::cout << "选项:\n";
     std::cout << "  -l, --lexer   仅进行词法分析\n";
-    std::cout << "  -p, --parser  进行语法分析（默认）\n";
+    std::cout << "  -p, --parser  仅进行语法分析\n";
+    std::cout << "  -s, --sema    进行语义分析（默认）\n";
     std::cout << "  -h, --help    显示帮助信息\n";
 }
 
@@ -46,7 +48,6 @@ void runParser(const std::string& source) {
 
     std::cout << "AST:\n" << program->toString() << "\n\n";
 
-    // 打印函数列表
     const auto& functions = program->getFunctions();
     std::cout << "识别到 " << functions.size() << " 个函数:\n";
     for (const auto& func : functions) {
@@ -60,6 +61,43 @@ void runParser(const std::string& source) {
     }
 }
 
+void runSema(const std::string& source) {
+    std::cout << "=== 语义分析结果 ===\n\n";
+    Lexer lexer(source);
+    Parser parser(lexer);
+
+    auto program = parser.parseProgram();
+
+    // 打印函数列表
+    const auto& functions = program->getFunctions();
+    std::cout << "识别到 " << functions.size() << " 个函数:\n";
+    for (const auto& func : functions) {
+        std::cout << "  - " << func->getReturnType() << " " << func->getName() << "(";
+        const auto& params = func->getParams();
+        for (size_t i = 0; i < params.size(); ++i) {
+            if (i > 0) std::cout << ", ";
+            std::cout << params[i].type << " " << params[i].name;
+        }
+        std::cout << ")\n";
+    }
+
+    // 语义分析
+    std::cout << "\n进行语义检查...\n";
+    Sema sema;
+    bool success = sema.analyze(program.get());
+
+    if (success) {
+        std::cout << "✓ 语义检查通过\n";
+    } else {
+        std::cout << "✗ 发现 " << sema.getErrors().size() << " 个语义错误:\n";
+        for (const auto& err : sema.getErrors()) {
+            std::cout << "  错误: " << err.message << "\n";
+        }
+    }
+}
+
+enum class Mode { Lexer, Parser, Sema };
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         printUsage(argv[0]);
@@ -67,7 +105,7 @@ int main(int argc, char* argv[]) {
     }
 
     std::string filename;
-    bool lexerOnly = false;
+    Mode mode = Mode::Sema;  // 默认语义分析
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -75,9 +113,11 @@ int main(int argc, char* argv[]) {
             printUsage(argv[0]);
             return 0;
         } else if (arg == "-l" || arg == "--lexer") {
-            lexerOnly = true;
+            mode = Mode::Lexer;
         } else if (arg == "-p" || arg == "--parser") {
-            lexerOnly = false;
+            mode = Mode::Parser;
+        } else if (arg == "-s" || arg == "--sema") {
+            mode = Mode::Sema;
         } else if (arg[0] != '-') {
             filename = arg;
         }
@@ -97,10 +137,16 @@ int main(int argc, char* argv[]) {
         std::cout << source;
         std::cout << "----------------------------------------\n\n";
 
-        if (lexerOnly) {
-            runLexer(source);
-        } else {
-            runParser(source);
+        switch (mode) {
+            case Mode::Lexer:
+                runLexer(source);
+                break;
+            case Mode::Parser:
+                runParser(source);
+                break;
+            case Mode::Sema:
+                runSema(source);
+                break;
         }
 
         std::cout << "\n✓ 分析完成\n";
