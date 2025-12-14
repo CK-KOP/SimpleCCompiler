@@ -22,6 +22,8 @@ enum class TokenType {
     // 括号
     LParen,         // (
     RParen,         // )
+    LBrace,         // {
+    RBrace,         // }
 
     // 分隔符
     Semicolon,      // ;
@@ -43,7 +45,15 @@ enum class TokenType {
 
     // 关键字
     Int,            // int
+    Void,           // void
     Return,         // return
+    If,             // if
+    Else,           // else
+    While,          // while
+    For,            // for
+    Do,             // do
+    Break,          // break
+    Continue,       // continue
 
     // 标识符
     Identifier,     // 变量名、函数名等

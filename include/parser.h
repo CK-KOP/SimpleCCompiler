@@ -28,6 +28,26 @@ public:
     // 解析完整表达式并检查语法错误
     std::unique_ptr<ExprNode> parseCompleteExpression();
 
+    // 语句解析功能
+    std::unique_ptr<StmtNode> parseStatement();
+    std::unique_ptr<CompoundStmtNode> parseCompoundStatement();
+
+    // 函数和程序解析
+    std::unique_ptr<FunctionDeclNode> parseFunctionDeclaration();
+    std::unique_ptr<ProgramNode> parseProgram();
+
+    // 声明和特定语句解析功能
+    std::unique_ptr<VarDeclStmtNode> parseVariableDeclaration();
+    std::unique_ptr<ReturnStmtNode> parseReturnStatement();
+
+    // 控制流语句解析功能
+    std::unique_ptr<IfStmtNode> parseIfStatement();
+    std::unique_ptr<WhileStmtNode> parseWhileStatement();
+    std::unique_ptr<ForStmtNode> parseForStatement();
+    std::unique_ptr<DoWhileStmtNode> parseDoWhileStatement();
+    std::unique_ptr<BreakStmtNode> parseBreakStatement();
+    std::unique_ptr<ContinueStmtNode> parseContinueStatement();
+
 private:
     Lexer& lexer_;            // 词法分析器引用
     Token currentToken_;       // 当前Token
@@ -48,7 +68,7 @@ private:
     };
 
   
-    // 基础解析方法
+    // 表达式基础解析方法
     std::unique_ptr<ExprNode> parsePrimary();
     std::unique_ptr<ExprNode> parseUnary();
     std::unique_ptr<ExprNode> parseFactor();
@@ -63,7 +83,11 @@ private:
     void advance();                          // 前进到下一个Token
     Token consume(TokenType type, const std::string& message); // 消费指定类型的Token
     bool match(TokenType type);             // 检查并消费Token
+    bool isTypeKeyword() const;             // 检查是否是类型关键字
     Precedence getOperatorPrecedence(TokenType op); // 获取运算符优先级
+
+    // 函数调用解析
+    std::unique_ptr<FunctionCallNode> parseFunctionCall(const std::string& name);
 };
 
 #endif // PARSER_H

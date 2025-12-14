@@ -1,51 +1,50 @@
-# 更通用的Makefile示例
+# SimpleC编译器 Makefile
 CXX = g++
 CXXFLAGS = -std=c++17 -Wall -Wextra -g -O0 -I include
 SRCDIR = src
 TESTDIR = tests
-EXAMPLEDIR = examples
 BUILDDIR = build
 
-# 源文件列表（自动发现）
-SRC_FILES = $(wildcard $(SRCDIR)/*.cpp)
-OBJ_FILES = $(SRC_FILES:$(SRCDIR)/%.cpp=$(BUILDDIR)/%.o)
+# 核心源文件
+CORE_SRC = $(SRCDIR)/lexer.cpp $(SRCDIR)/parser.cpp $(SRCDIR)/token.cpp
+CORE_OBJ = $(BUILDDIR)/lexer.o $(BUILDDIR)/parser.o $(BUILDDIR)/token.o
 
 # 测试文件列表
 TEST_FILES = $(wildcard $(TESTDIR)/test_*.cpp)
 TEST_BINS = $(TEST_FILES:$(TESTDIR)/%.cpp=$(BUILDDIR)/%)
 
-# 示例文件列表
-EXAMPLE_FILES = $(wildcard $(EXAMPLEDIR)/*.cpp)
-EXAMPLE_BINS = $(EXAMPLE_FILES:$(EXAMPLEDIR)/%.cpp=$(BUILDDIR)/%)
+# 主程序
+MAIN_BIN = $(BUILDDIR)/simplec
 
 # 默认目标
-.PHONY: all clean test examples run-demo help
+.PHONY: all clean test help
 
-all: $(BUILDDIR)
-	@echo "SimpleC编译器 - 第一阶段：基础词法分析器"
-	@echo "可用的make目标："
-	@echo "  test     - 编译并运行测试"
-	@echo "  examples - 编译并运行示例"
-	@echo "  run-demo - 编译并运行演示程序"
-	@echo "  clean    - 清理构建文件"
-	@echo "  info     - 显示项目信息"
-	@echo "  help     - 显示帮助信息"
+all: $(MAIN_BIN)
+	@echo ""
+	@echo "SimpleC编译器构建完成！"
+	@echo "用法: ./build/simplec <源文件> [选项]"
 
 # 创建构建目录
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)
 
-# 编译源文件为目标文件的规则
-$(BUILDDIR)/%.o: $(SRCDIR)/%.cpp | $(BUILDDIR)
+# 编译核心源文件
+$(BUILDDIR)/lexer.o: $(SRCDIR)/lexer.cpp | $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# 编译测试文件的规则
-$(BUILDDIR)/%: $(TESTDIR)/%.cpp $(OBJ_FILES) | $(BUILDDIR)
-	$(CXX) $(CXXFLAGS) $(OBJ_FILES) $< -o $@
+$(BUILDDIR)/parser.o: $(SRCDIR)/parser.cpp | $(BUILDDIR)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-# 编译示例文件的规则
-$(BUILDDIR)/%: $(EXAMPLEDIR)/%.cpp $(OBJ_FILES) | $(BUILDDIR)
-	$(CXX) $(CXXFLAGS) $(OBJ_FILES) $< -o $@
+$(BUILDDIR)/token.o: $(SRCDIR)/token.cpp | $(BUILDDIR)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# 链接主程序
+$(MAIN_BIN): $(CORE_OBJ) main.cpp | $(BUILDDIR)
+	$(CXX) $(CXXFLAGS) $(CORE_OBJ) main.cpp -o $@
+
+# 编译测试文件
+$(BUILDDIR)/test_%: $(TESTDIR)/test_%.cpp $(CORE_OBJ) | $(BUILDDIR)
+	$(CXX) $(CXXFLAGS) $(CORE_OBJ) $< -o $@
 
 # 运行所有测试
 test: $(TEST_BINS)
@@ -54,46 +53,19 @@ test: $(TEST_BINS)
 		$$test; \
 	done
 
-# 运行示例
-examples: $(EXAMPLE_BINS)
-	@for example in $(EXAMPLE_BINS); do \
-		echo "运行 $$example..."; \
-		$$example; \
-	done
-
-# 运行演示程序
-run-demo: $(EXAMPLE_BINS)
-	@for demo in $(EXAMPLE_BINS); do \
-		echo "运行 $$demo..."; \
-		$$demo; \
-		echo "---"; \
-	done
-
 # 清理
 clean:
 	rm -rf $(BUILDDIR)
 
-# 显示信息
-info:
-	@echo "源文件: $(SRC_FILES)"
-	@echo "目标文件: $(OBJ_FILES)"
-	@echo "测试文件: $(TEST_FILES)"
-	@echo "测试程序: $(TEST_BINS)"
-	@echo "示例程序: $(EXAMPLE_BINS)"
-
 # 帮助信息
 help:
-	@echo "SimpleC编译器构建系统"
+	@echo "SimpleC编译器"
 	@echo ""
-	@echo "主要目标："
-	@echo "  test     - 编译并运行所有测试"
-	@echo "  run-demo - 编译并运行演示程序"
-	@echo "  examples - 编译并运行所有示例"
-	@echo "  clean    - 清理构建文件"
-	@echo "  info     - 显示项目文件信息"
-	@echo "  help     - 显示此帮助信息"
+	@echo "目标："
+	@echo "  all    - 构建编译器 (默认)"
+	@echo "  test   - 运行所有测试"
+	@echo "  clean  - 清理构建文件"
 	@echo ""
-	@echo "示例："
-	@echo "  make test     # 编译并运行测试"
-	@echo "  make run-demo # 编译并运行演示程序"
-	@echo "  make clean    # 清理构建文件"
+	@echo "使用："
+	@echo "  ./build/simplec <file.c>      # 语法分析"
+	@echo "  ./build/simplec <file.c> -l   # 仅词法分析"

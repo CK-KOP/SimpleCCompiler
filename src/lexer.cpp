@@ -86,6 +86,18 @@ Token Lexer::getNextToken() {
             advance();
             return Token(TokenType::RParen, ")", token_line, token_column);
         }
+        case '{': {
+            int token_line = line_;
+            int token_column = column_;
+            advance();
+            return Token(TokenType::LBrace, "{", token_line, token_column);
+        }
+        case '}': {
+            int token_line = line_;
+            int token_column = column_;
+            advance();
+            return Token(TokenType::RBrace, "}", token_line, token_column);
+        }
         case ';': {
             int token_line = line_;
             int token_column = column_;
@@ -296,14 +308,33 @@ Token Lexer::readMultiCharOperator(TokenType type) {
 }
 
 bool Lexer::isKeyword(const std::string& str) {
-    return str == "int" || str == "return";
+    return str == "int" || str == "void" || str == "return" ||
+           str == "if" || str == "else" ||
+           str == "while" || str == "for" || str == "do" ||
+           str == "break" || str == "continue";
 }
 
 TokenType Lexer::getKeywordType(const std::string& str) {
     if (str == "int") {
         return TokenType::Int;
+    } else if (str == "void") {
+        return TokenType::Void;
     } else if (str == "return") {
         return TokenType::Return;
+    } else if (str == "if") {
+        return TokenType::If;
+    } else if (str == "else") {
+        return TokenType::Else;
+    } else if (str == "while") {
+        return TokenType::While;
+    } else if (str == "for") {
+        return TokenType::For;
+    } else if (str == "do") {
+        return TokenType::Do;
+    } else if (str == "break") {
+        return TokenType::Break;
+    } else if (str == "continue") {
+        return TokenType::Continue;
     }
     return TokenType::Invalid;
 }

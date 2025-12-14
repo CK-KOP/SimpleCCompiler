@@ -20,6 +20,8 @@ std::string Token::typeToString(TokenType type) {
         case TokenType::Divide:    return "Divide";
         case TokenType::LParen:    return "LParen";
         case TokenType::RParen:    return "RParen";
+        case TokenType::LBrace:    return "LBrace";
+        case TokenType::RBrace:    return "RBrace";
         case TokenType::Semicolon: return "Semicolon";
         case TokenType::Comma:     return "Comma";
         case TokenType::Assign:    return "Assign";
@@ -33,7 +35,15 @@ std::string Token::typeToString(TokenType type) {
         case TokenType::LogicalOr:  return "LogicalOr";
         case TokenType::LogicalNot: return "LogicalNot";
         case TokenType::Int:       return "Int";
+        case TokenType::Void:      return "Void";
         case TokenType::Return:    return "Return";
+        case TokenType::If:        return "If";
+        case TokenType::Else:      return "Else";
+        case TokenType::While:     return "While";
+        case TokenType::For:       return "For";
+        case TokenType::Do:        return "Do";
+        case TokenType::Break:     return "Break";
+        case TokenType::Continue:  return "Continue";
         case TokenType::Identifier:return "Identifier";
         case TokenType::End:       return "End";
         case TokenType::Invalid:   return "Invalid";

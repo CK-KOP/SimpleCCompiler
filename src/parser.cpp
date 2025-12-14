@@ -175,7 +175,7 @@ std::unique_ptr<ExprNode> Parser::parseUnary() {
 }
 
 std::unique_ptr<ExprNode> Parser::parsePrimary() {
-    // 解析基础表达式：数字、变量、括号表达式（最高优先级）
+    // 解析基础表达式：数字、变量、函数调用、括号表达式
     if (match(TokenType::Number)) {
         int value = std::stoi(currentToken_.getValue());
         advance();
@@ -185,6 +185,10 @@ std::unique_ptr<ExprNode> Parser::parsePrimary() {
     if (match(TokenType::Identifier)) {
         std::string name = currentToken_.getValue();
         advance();
+        // 检查是否是函数调用
+        if (match(TokenType::LParen)) {
+            return parseFunctionCall(name);
+        }
         return std::make_unique<VariableNode>(name);
     }
 
@@ -196,6 +200,24 @@ std::unique_ptr<ExprNode> Parser::parsePrimary() {
     }
 
     throw std::runtime_error("意外的Token: " + currentToken_.toString());
+}
+
+// 解析函数调用：foo(arg1, arg2, ...)
+std::unique_ptr<FunctionCallNode> Parser::parseFunctionCall(const std::string& name) {
+    advance(); // 消费(
+    std::vector<std::unique_ptr<ExprNode>> args;
+
+    // 解析参数列表
+    if (!match(TokenType::RParen)) {
+        args.push_back(parseExpression());
+        while (match(TokenType::Comma)) {
+            advance(); // 消费,
+            args.push_back(parseExpression());
+        }
+    }
+
+    consume(TokenType::RParen, "期望 ')' 在函数调用后");
+    return std::make_unique<FunctionCallNode>(name, std::move(args));
 }
 
 // 前进到下一个Token（更新currentToken_）
@@ -221,6 +243,173 @@ bool Parser::match(TokenType type) {
         return true;
     }
     return false;
+}
+
+// 解析语句
+std::unique_ptr<StmtNode> Parser::parseStatement() {
+    if (match(TokenType::LBrace)) {
+        // 复合语句：{ ... }
+        advance(); // 消费{
+        return parseCompoundStatement();
+    }
+
+    if (match(TokenType::Int)) {
+        // 变量声明语句：int x; 或 int y = 5;
+        return parseVariableDeclaration();
+    }
+
+    if (match(TokenType::Return)) {
+        // 返回语句：return; 或 return x;
+        return parseReturnStatement();
+    }
+
+    if (match(TokenType::If)) {
+        // If语句：if (condition) stmt [else stmt]
+        return parseIfStatement();
+    }
+
+    if (match(TokenType::While)) {
+        // While语句：while (condition) stmt
+        return parseWhileStatement();
+    }
+
+    if (match(TokenType::For)) {
+        // For语句：for (init; condition; increment) stmt
+        return parseForStatement();
+    }
+
+    if (match(TokenType::Do)) {
+        // Do-While语句：do stmt while (condition);
+        return parseDoWhileStatement();
+    }
+
+    if (match(TokenType::Break)) {
+        // Break语句：break;
+        return parseBreakStatement();
+    }
+
+    if (match(TokenType::Continue)) {
+        // Continue语句：continue;
+        return parseContinueStatement();
+    }
+
+    if (match(TokenType::Semicolon)) {
+        // 空语句：;
+        advance(); // 消费分号
+        return std::make_unique<EmptyStmtNode>();
+    }
+
+    // 表达式语句：表达式;
+    auto expr = parseExpression();
+    consume(TokenType::Semicolon, "期望分号");
+    return std::make_unique<ExprStmtNode>(std::move(expr));
+}
+
+// 检查是否是类型关键字
+bool Parser::isTypeKeyword() const {
+    return currentToken_.is(TokenType::Int) || currentToken_.is(TokenType::Void);
+}
+
+// 解析程序（函数定义的序列）
+std::unique_ptr<ProgramNode> Parser::parseProgram() {
+    auto program = std::make_unique<ProgramNode>();
+
+    while (!isAtEnd()) {
+        try {
+            auto func = parseFunctionDeclaration();
+            program->addFunction(std::move(func));
+        } catch (const std::exception& e) {
+            throw std::runtime_error("在第" + std::to_string(currentToken_.getLine()) +
+                                    "行: " + std::string(e.what()));
+        }
+    }
+
+    return program;
+}
+
+// 解析函数定义：int foo(int a, int b) { ... }
+std::unique_ptr<FunctionDeclNode> Parser::parseFunctionDeclaration() {
+    // 解析返回类型
+    std::string return_type;
+    if (match(TokenType::Int)) {
+        return_type = "int";
+        advance();
+    } else if (match(TokenType::Void)) {
+        return_type = "void";
+        advance();
+    } else {
+        throw std::runtime_error("期望函数返回类型，但得到: " + currentToken_.toString());
+    }
+
+    // 解析函数名
+    if (!match(TokenType::Identifier)) {
+        throw std::runtime_error("期望函数名，但得到: " + currentToken_.toString());
+    }
+    std::string func_name = currentToken_.getValue();
+    advance();
+
+    // 解析参数列表
+    consume(TokenType::LParen, "期望 '(' 在函数名后");
+    std::vector<FunctionParam> params;
+
+    if (!match(TokenType::RParen)) {
+        // 解析第一个参数
+        if (!isTypeKeyword()) {
+            throw std::runtime_error("期望参数类型");
+        }
+        std::string param_type = currentToken_.getValue();
+        advance();
+
+        if (!match(TokenType::Identifier)) {
+            throw std::runtime_error("期望参数名");
+        }
+        std::string param_name = currentToken_.getValue();
+        advance();
+        params.emplace_back(param_type, param_name);
+
+        // 解析剩余参数
+        while (match(TokenType::Comma)) {
+            advance(); // 消费,
+
+            if (!isTypeKeyword()) {
+                throw std::runtime_error("期望参数类型");
+            }
+            param_type = currentToken_.getValue();
+            advance();
+
+            if (!match(TokenType::Identifier)) {
+                throw std::runtime_error("期望参数名");
+            }
+            param_name = currentToken_.getValue();
+            advance();
+            params.emplace_back(param_type, param_name);
+        }
+    }
+
+    consume(TokenType::RParen, "期望 ')' 在参数列表后");
+
+    // 解析函数体
+    consume(TokenType::LBrace, "期望 '{' 在函数体开始");
+    auto body = parseCompoundStatement();
+
+    return std::make_unique<FunctionDeclNode>(return_type, func_name, std::move(params), std::move(body));
+}
+
+// 解析复合语句：{ stmt1; stmt2; ... }
+std::unique_ptr<CompoundStmtNode> Parser::parseCompoundStatement() {
+    auto compound = std::make_unique<CompoundStmtNode>();
+
+    while (!isAtEnd() && !match(TokenType::RBrace)) {
+        try {
+            auto stmt = parseStatement();
+            compound->addStatement(std::move(stmt));
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("在代码块中: ") + e.what());
+        }
+    }
+
+    consume(TokenType::RBrace, "期望 '}'");
+    return compound;
 }
 
 // 获取运算符的优先级（数值越大优先级越高）
@@ -249,4 +438,190 @@ Parser::Precedence Parser::getOperatorPrecedence(TokenType op) {
         default:
             return PREC_LOWEST;           // 未知运算符最低优先级
     }
+}
+
+// 解析变量声明语句：int x; 或 int y = 5;
+std::unique_ptr<VarDeclStmtNode> Parser::parseVariableDeclaration() {
+    advance(); // 消费int
+
+    // 获取变量名
+    if (!match(TokenType::Identifier)) {
+        throw std::runtime_error("期望变量名，但得到: " + currentToken_.toString());
+    }
+
+    std::string varName = currentToken_.getValue();
+    advance(); // 消费变量名
+
+    std::unique_ptr<ExprNode> initializer = nullptr;
+
+    // 检查是否有初始化值
+    if (match(TokenType::Assign)) {
+        advance(); // 消费=
+        initializer = parseExpression(); // 解析初始化表达式
+    }
+
+    consume(TokenType::Semicolon, "期望分号");
+
+    return std::make_unique<VarDeclStmtNode>("int", varName, std::move(initializer));
+}
+
+// 解析返回语句：return; 或 return x;
+std::unique_ptr<ReturnStmtNode> Parser::parseReturnStatement() {
+    advance(); // 消费return
+
+    std::unique_ptr<ExprNode> expr = nullptr;
+
+    // 检查是否有返回值
+    if (!match(TokenType::Semicolon)) {
+        expr = parseExpression(); // 解析返回表达式
+    }
+
+    consume(TokenType::Semicolon, "期望分号");
+
+    return std::make_unique<ReturnStmtNode>(std::move(expr));
+}
+
+// 解析If语句：if (condition) stmt [else if (condition) stmt ...] [else stmt]
+std::unique_ptr<IfStmtNode> Parser::parseIfStatement() {
+    advance(); // 消费if
+
+    consume(TokenType::LParen, "期望 '(' 在if条件后");
+
+    // 解析条件表达式
+    auto condition = parseExpression();
+
+    consume(TokenType::RParen, "期望 ')' 在if条件后");
+
+    // 解析then分支
+    auto then_stmt = parseStatement();
+
+    // 创建If节点
+    auto if_node = std::make_unique<IfStmtNode>(std::move(condition), std::move(then_stmt));
+
+    // 解析可选的else if和else分支
+    while (match(TokenType::Else)) {
+        advance(); // 消费else
+
+        if (match(TokenType::If)) {
+            // else if 分支
+            advance(); // 消费if
+
+            consume(TokenType::LParen, "期望 '(' 在else if条件后");
+
+            auto else_if_condition = parseExpression();
+
+            consume(TokenType::RParen, "期望 ')' 在else if条件后");
+
+            auto else_if_stmt = parseStatement();
+
+            // 添加else if分支
+            if_node->addElseIf(std::move(else_if_condition), std::move(else_if_stmt));
+        } else {
+            // else 分支
+            auto else_stmt = parseStatement();
+            if_node->setElseStmt(std::move(else_stmt));
+            break; // else后面不能再有else if
+        }
+    }
+
+    return if_node;
+}
+
+// 解析While语句：while (condition) stmt
+std::unique_ptr<WhileStmtNode> Parser::parseWhileStatement() {
+    advance(); // 消费while
+
+    consume(TokenType::LParen, "期望 '(' 在while条件后");
+
+    // 解析条件表达式
+    auto condition = parseExpression();
+
+    consume(TokenType::RParen, "期望 ')' 在while条件后");
+
+    // 解析循环体
+    auto body = parseStatement();
+
+    return std::make_unique<WhileStmtNode>(std::move(condition), std::move(body));
+}
+
+// 解析For语句：for (init; condition; increment) stmt
+std::unique_ptr<ForStmtNode> Parser::parseForStatement() {
+    advance(); // 消费for
+
+    consume(TokenType::LParen, "期望 '(' 在for后");
+
+    // 解析初始化部分（可为空）
+    std::unique_ptr<StmtNode> init = nullptr;
+    if (!match(TokenType::Semicolon)) {
+        // 可能是变量声明或表达式
+        if (match(TokenType::Int)) {
+            init = parseVariableDeclaration();
+        } else {
+            auto init_expr = parseExpression();
+            consume(TokenType::Semicolon, "期望分号在for初始化后");
+            init = std::make_unique<ExprStmtNode>(std::move(init_expr));
+        }
+    } else {
+        advance(); // 消费空初始化的分号
+    }
+
+    // 解析条件部分（可为空）
+    std::unique_ptr<ExprNode> condition = nullptr;
+    if (!match(TokenType::Semicolon)) {
+        condition = parseExpression();
+        consume(TokenType::Semicolon, "期望分号在for条件后");
+    } else {
+        advance(); // 消费空条件的分号
+    }
+
+    // 解析增量部分（可为空）
+    std::unique_ptr<ExprNode> increment = nullptr;
+    if (!match(TokenType::RParen)) {
+        increment = parseExpression();
+        consume(TokenType::RParen, "期望 ')' 在for增量后");
+    } else {
+        advance(); // 消费右括号
+    }
+
+    // 解析循环体
+    auto body = parseStatement();
+
+    return std::make_unique<ForStmtNode>(std::move(init), std::move(condition), std::move(increment), std::move(body));
+}
+
+// 解析Do-While语句：do stmt while (condition);
+std::unique_ptr<DoWhileStmtNode> Parser::parseDoWhileStatement() {
+    advance(); // 消费do
+
+    // 解析循环体
+    auto body = parseStatement();
+
+    consume(TokenType::While, "期望while关键字");
+    consume(TokenType::LParen, "期望 '(' 在while条件后");
+
+    // 解析条件表达式
+    auto condition = parseExpression();
+
+    consume(TokenType::RParen, "期望 ')' 在while条件后");
+    consume(TokenType::Semicolon, "期望分号在do-while语句后");
+
+    return std::make_unique<DoWhileStmtNode>(std::move(body), std::move(condition));
+}
+
+// 解析Break语句：break;
+std::unique_ptr<BreakStmtNode> Parser::parseBreakStatement() {
+    advance(); // 消费break
+
+    consume(TokenType::Semicolon, "期望分号在break语句后");
+
+    return std::make_unique<BreakStmtNode>();
+}
+
+// 解析Continue语句：continue;
+std::unique_ptr<ContinueStmtNode> Parser::parseContinueStatement() {
+    advance(); // 消费continue
+
+    consume(TokenType::Semicolon, "期望分号在continue语句后");
+
+    return std::make_unique<ContinueStmtNode>();
 }
