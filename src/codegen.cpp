@@ -58,17 +58,13 @@ void CodeGen::genStatement(StmtNode* stmt) {
     } else if (auto* expr_stmt = dynamic_cast<ExprStmtNode*>(stmt)) {
         genExprStmt(expr_stmt);
     } else if (dynamic_cast<BreakStmtNode*>(stmt)) {
-        if (break_targets_.empty()) {
-            throw std::runtime_error("break outside loop");
-        }
         int jmp_addr = code_.currentAddress();
         code_.emit(OpCode::JMP, 0);
         break_targets_.push_back(jmp_addr);
     } else if (dynamic_cast<ContinueStmtNode*>(stmt)) {
-        if (continue_targets_.empty()) {
-            throw std::runtime_error("continue outside loop");
-        }
-        code_.emit(OpCode::JMP, continue_targets_.back());
+        int jmp_addr = code_.currentAddress();
+        code_.emit(OpCode::JMP, 0);
+        continue_targets_.push_back(jmp_addr);
     }
     // EmptyStmtNode 不生成代码
 }
@@ -102,7 +98,10 @@ void CodeGen::genIfStmt(IfStmtNode* stmt) {
     genStatement(stmt->getThenStmt());
 
     if (stmt->hasElseStmt() || !stmt->getElseIfs().empty()) {
-        int jmp_end = code_.currentAddress();
+        // 收集所有需要跳转到末尾的地址
+        std::vector<int> jmp_ends;
+
+        jmp_ends.push_back(code_.currentAddress());
         code_.emit(OpCode::JMP, 0);  // 跳过 else
 
         code_.patch(jz_addr, code_.currentAddress());
@@ -115,20 +114,19 @@ void CodeGen::genIfStmt(IfStmtNode* stmt) {
 
             genStatement(else_if->statement.get());
 
-            int else_if_jmp = code_.currentAddress();
+            jmp_ends.push_back(code_.currentAddress());
             code_.emit(OpCode::JMP, 0);
             code_.patch(else_if_jz, code_.currentAddress());
-
-            // 链接所有跳转到末尾
-            code_.patch(jmp_end, code_.currentAddress());
-            jmp_end = else_if_jmp;
         }
 
         if (stmt->hasElseStmt()) {
             genStatement(stmt->getElseStmt());
         }
 
-        code_.patch(jmp_end, code_.currentAddress());
+        // 统一回填所有跳转到末尾
+        for (int addr : jmp_ends) {
+            code_.patch(addr, code_.currentAddress());
+        }
     } else {
         code_.patch(jz_addr, code_.currentAddress());
     }
@@ -136,14 +134,20 @@ void CodeGen::genIfStmt(IfStmtNode* stmt) {
 
 void CodeGen::genWhileStmt(WhileStmtNode* stmt) {
     int loop_start = code_.currentAddress();
-    continue_targets_.push_back(loop_start);
 
     genExpression(stmt->getCondition());
     int jz_addr = code_.currentAddress();
     code_.emit(OpCode::JZ, 0);
 
     size_t break_start = break_targets_.size();
+    size_t continue_start = continue_targets_.size();
     genStatement(stmt->getBody());
+
+    // 回填 continue 到 loop_start（条件检查）
+    for (size_t i = continue_start; i < continue_targets_.size(); ++i) {
+        code_.patch(continue_targets_[i], loop_start);
+    }
+    continue_targets_.resize(continue_start);
 
     code_.emit(OpCode::JMP, loop_start);
     code_.patch(jz_addr, code_.currentAddress());
@@ -153,7 +157,6 @@ void CodeGen::genWhileStmt(WhileStmtNode* stmt) {
         code_.patch(break_targets_[i], code_.currentAddress());
     }
     break_targets_.resize(break_start);
-    continue_targets_.pop_back();
 }
 
 void CodeGen::genForStmt(ForStmtNode* stmt) {
@@ -170,17 +173,16 @@ void CodeGen::genForStmt(ForStmtNode* stmt) {
         code_.emit(OpCode::JZ, 0);
     }
 
-    int continue_target = code_.currentAddress();
-    continue_targets_.push_back(continue_target);
-
     size_t break_start = break_targets_.size();
+    size_t continue_start = continue_targets_.size();
     genStatement(stmt->getBody());
 
-    // continue 跳转到增量表达式
+    // 回填 continue 到 increment
     int increment_addr = code_.currentAddress();
-    for (size_t i = continue_targets_.size(); i > 0 && continue_targets_[i-1] == continue_target; --i) {
-        continue_targets_[i-1] = increment_addr;
+    for (size_t i = continue_start; i < continue_targets_.size(); ++i) {
+        code_.patch(continue_targets_[i], increment_addr);
     }
+    continue_targets_.resize(continue_start);
 
     if (stmt->hasIncrement()) {
         genExpression(stmt->getIncrement());
@@ -193,36 +195,35 @@ void CodeGen::genForStmt(ForStmtNode* stmt) {
         code_.patch(jz_addr, code_.currentAddress());
     }
 
+    // 回填 break
     for (size_t i = break_start; i < break_targets_.size(); ++i) {
         code_.patch(break_targets_[i], code_.currentAddress());
     }
     break_targets_.resize(break_start);
-    continue_targets_.pop_back();
 }
 
 void CodeGen::genDoWhileStmt(DoWhileStmtNode* stmt) {
     int loop_start = code_.currentAddress();
 
     size_t break_start = break_targets_.size();
-    int continue_target = loop_start;
-    continue_targets_.push_back(continue_target);
-
+    size_t continue_start = continue_targets_.size();
     genStatement(stmt->getBody());
 
+    // 回填 continue 到条件检查
     int cond_addr = code_.currentAddress();
-    // 更新 continue 目标到条件检查
-    for (size_t i = continue_targets_.size(); i > 0 && continue_targets_[i-1] == continue_target; --i) {
-        continue_targets_[i-1] = cond_addr;
+    for (size_t i = continue_start; i < continue_targets_.size(); ++i) {
+        code_.patch(continue_targets_[i], cond_addr);
     }
+    continue_targets_.resize(continue_start);
 
     genExpression(stmt->getCondition());
     code_.emit(OpCode::JNZ, loop_start);
 
+    // 回填 break
     for (size_t i = break_start; i < break_targets_.size(); ++i) {
         code_.patch(break_targets_[i], code_.currentAddress());
     }
     break_targets_.resize(break_start);
-    continue_targets_.pop_back();
 }
 
 void CodeGen::genReturnStmt(ReturnStmtNode* stmt) {
