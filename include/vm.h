@@ -15,6 +15,8 @@ enum class OpCode : uint8_t {
     // 变量操作
     LOAD,       // 加载局部变量 (相对于帧指针的偏移)
     STORE,      // 存储局部变量
+    LOADI,      // 间接加载：基地址在operand，偏移在栈顶
+    STOREI,     // 间接存储：基地址在operand，偏移和值在栈上
 
     // 算术运算
     ADD, SUB, MUL, DIV, MOD,
@@ -39,7 +41,8 @@ enum class OpCode : uint8_t {
     // 其他
     PRINT,      // 打印栈顶（调试用）
     HALT,       // 停止
-    POPN        // 弹出 N 个值（保留栈顶）
+    POPN,       // 弹出 N 个值（保留栈顶，函数返回时使用）
+    ADJSP       // 调整栈指针（不保留任何值）
 };
 
 // 单条指令

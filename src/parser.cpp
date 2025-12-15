@@ -47,11 +47,11 @@ std::unique_ptr<ExprNode> Parser::parseAssignment() {
         advance(); // 消费=
         auto right = parseAssignment(); // 右结合：递归调用自身，a = b = c 解析为 a = (b = c)
 
-        // 安全检查：赋值运算符左边必须是变量
-        if (dynamic_cast<VariableNode*>(expr.get())) {
+        // 安全检查：赋值运算符左边必须是变量或数组访问
+        if (dynamic_cast<VariableNode*>(expr.get()) || dynamic_cast<ArrayAccessNode*>(expr.get())) {
             return std::make_unique<BinaryOpNode>(std::move(expr), TokenType::Assign, std::move(right));
         } else {
-            throw std::runtime_error("赋值运算符左边必须是变量");
+            throw std::runtime_error("赋值运算符左边必须是变量或数组元素");
         }
     }
 
@@ -175,7 +175,7 @@ std::unique_ptr<ExprNode> Parser::parseUnary() {
 }
 
 std::unique_ptr<ExprNode> Parser::parsePrimary() {
-    // 解析基础表达式：数字、变量、函数调用、括号表达式
+    // 解析基础表达式：数字、变量、函数调用、数组访问、括号表达式
     if (match(TokenType::Number)) {
         int value = std::stoi(currentToken_.getValue());
         advance();
@@ -188,6 +188,13 @@ std::unique_ptr<ExprNode> Parser::parsePrimary() {
         // 检查是否是函数调用
         if (match(TokenType::LParen)) {
             return parseFunctionCall(name);
+        }
+        // 检查是否是数组访问
+        if (match(TokenType::LBracket)) {
+            advance(); // 消费[
+            auto index = parseExpression();
+            consume(TokenType::RBracket, "期望 ']' 在数组下标后");
+            return std::make_unique<ArrayAccessNode>(name, std::move(index));
         }
         return std::make_unique<VariableNode>(name);
     }
@@ -440,7 +447,7 @@ Parser::Precedence Parser::getOperatorPrecedence(TokenType op) {
     }
 }
 
-// 解析变量声明语句：int x; 或 int y = 5;
+// 解析变量声明语句：int x; 或 int y = 5; 或 int arr[10];
 std::unique_ptr<VarDeclStmtNode> Parser::parseVariableDeclaration() {
     advance(); // 消费int
 
@@ -451,6 +458,19 @@ std::unique_ptr<VarDeclStmtNode> Parser::parseVariableDeclaration() {
 
     std::string varName = currentToken_.getValue();
     advance(); // 消费变量名
+
+    // 检查是否是数组声明
+    if (match(TokenType::LBracket)) {
+        advance(); // 消费[
+        if (!match(TokenType::Number)) {
+            throw std::runtime_error("期望数组大小，但得到: " + currentToken_.toString());
+        }
+        int arraySize = std::stoi(currentToken_.getValue());
+        advance(); // 消费数字
+        consume(TokenType::RBracket, "期望 ']' 在数组大小后");
+        consume(TokenType::Semicolon, "期望分号");
+        return std::make_unique<VarDeclStmtNode>("int", varName, arraySize);
+    }
 
     std::unique_ptr<ExprNode> initializer = nullptr;
 

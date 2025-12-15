@@ -116,6 +116,24 @@ public:
     }
 };
 
+// 数组访问节点：arr[index]
+class ArrayAccessNode : public ExprNode {
+private:
+    std::string array_name_;              // 数组名
+    std::unique_ptr<ExprNode> index_;     // 下标表达式
+
+public:
+    ArrayAccessNode(const std::string& name, std::unique_ptr<ExprNode> index)
+        : array_name_(name), index_(std::move(index)) {}
+
+    const std::string& getArrayName() const { return array_name_; }
+    ExprNode* getIndex() const { return index_.get(); }
+
+    std::string toString() const override {
+        return "ArrayAccess(" + array_name_ + ", " + index_->toString() + ")";
+    }
+};
+
 // 语句节点基类
 class StmtNode : public ASTNode {
 public:
@@ -123,24 +141,35 @@ public:
     virtual std::string toString() const override = 0;
 };
 
-// 变量声明语句节点
+// 变量声明语句节点（支持普通变量和数组）
 class VarDeclStmtNode : public StmtNode {
 private:
     std::string type_;                                   // 变量类型
     std::string name_;                                   // 变量名
     std::unique_ptr<ExprNode> initializer_;              // 初始化表达式（可为空）
+    int array_size_;                                     // 数组大小，-1表示非数组
 
 public:
+    // 普通变量声明
     VarDeclStmtNode(const std::string& type, const std::string& name, std::unique_ptr<ExprNode> initializer = nullptr)
-        : type_(type), name_(name), initializer_(std::move(initializer)) {}
+        : type_(type), name_(name), initializer_(std::move(initializer)), array_size_(-1) {}
+
+    // 数组声明，暂时不支持初始化
+    VarDeclStmtNode(const std::string& type, const std::string& name, int array_size)
+        : type_(type), name_(name), initializer_(nullptr), array_size_(array_size) {}
 
     const std::string& getType() const { return type_; }
     const std::string& getName() const { return name_; }
     ExprNode* getInitializer() const { return initializer_.get(); }
     bool hasInitializer() const { return initializer_ != nullptr; }
+    bool isArray() const { return array_size_ > 0; }
+    int getArraySize() const { return array_size_; }
 
     std::string toString() const override {
         std::string result = "VarDecl(" + type_ + " " + name_;
+        if (isArray()) {
+            result += "[" + std::to_string(array_size_) + "]";
+        }
         if (initializer_) {
             result += " = " + initializer_->toString();
         }

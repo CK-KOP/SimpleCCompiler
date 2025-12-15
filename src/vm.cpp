@@ -9,6 +9,8 @@ std::string opcodeName(OpCode op) {
         case OpCode::POP:   return "POP";
         case OpCode::LOAD:  return "LOAD";
         case OpCode::STORE: return "STORE";
+        case OpCode::LOADI: return "LOADI";
+        case OpCode::STOREI:return "STOREI";
         case OpCode::ADD:   return "ADD";
         case OpCode::SUB:   return "SUB";
         case OpCode::MUL:   return "MUL";
@@ -33,6 +35,7 @@ std::string opcodeName(OpCode op) {
         case OpCode::PRINT: return "PRINT";
         case OpCode::HALT:  return "HALT";
         case OpCode::POPN:  return "POPN";
+        case OpCode::ADJSP: return "ADJSP";
         default:            return "???";
     }
 }
@@ -44,7 +47,9 @@ std::string ByteCode::toString() const {
         if (code[i].op == OpCode::PUSH || code[i].op == OpCode::LOAD ||
             code[i].op == OpCode::STORE || code[i].op == OpCode::JMP ||
             code[i].op == OpCode::JZ || code[i].op == OpCode::JNZ ||
-            code[i].op == OpCode::CALL || code[i].op == OpCode::POPN) {
+            code[i].op == OpCode::CALL || code[i].op == OpCode::POPN ||
+            code[i].op == OpCode::LOADI || code[i].op == OpCode::STOREI ||
+            code[i].op == OpCode::ADJSP) {
             ss << " " << code[i].operand;
         }
         ss << "\n";
@@ -108,6 +113,23 @@ int VM::execute(const ByteCode& bytecode) {
             case OpCode::STORE:
                 stack_[fp_ + instr.operand] = pop();
                 break;
+
+            case OpCode::LOADI: {
+                // 间接加载：基地址在operand，偏移在栈顶
+                // stack[fp + base + index]
+                int32_t index = pop();
+                push(stack_[fp_ + instr.operand + index]);
+                break;
+            }
+
+            case OpCode::STOREI: {
+                // 间接存储：基地址在operand，偏移和值在栈上
+                // 栈顶是value，栈顶-1是index
+                int32_t value = pop();
+                int32_t index = pop();
+                stack_[fp_ + instr.operand + index] = value;
+                break;
+            }
 
             case OpCode::ADD: {
                 int32_t b = pop(), a = pop();
@@ -239,6 +261,12 @@ int VM::execute(const ByteCode& bytecode) {
                     sp_ -= n;
                     stack_[sp_ - 1] = top;
                 }
+                break;
+            }
+
+            case OpCode::ADJSP: {
+                // 简单调整栈指针，不保留任何值
+                sp_ -= instr.operand;
                 break;
             }
         }

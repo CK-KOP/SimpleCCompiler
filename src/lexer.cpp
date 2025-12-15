@@ -98,6 +98,18 @@ Token Lexer::getNextToken() {
             advance();
             return Token(TokenType::RBrace, "}", token_line, token_column);
         }
+        case '[': {
+            int token_line = line_;
+            int token_column = column_;
+            advance();
+            return Token(TokenType::LBracket, "[", token_line, token_column);
+        }
+        case ']': {
+            int token_line = line_;
+            int token_column = column_;
+            advance();
+            return Token(TokenType::RBracket, "]", token_line, token_column);
+        }
         case ';': {
             int token_line = line_;
             int token_column = column_;

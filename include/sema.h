@@ -60,6 +60,7 @@ private:
     std::shared_ptr<Type> analyzeBinaryOp(BinaryOpNode* expr);
     std::shared_ptr<Type> analyzeUnaryOp(UnaryOpNode* expr);
     std::shared_ptr<Type> analyzeFunctionCall(FunctionCallNode* expr);
+    std::shared_ptr<Type> analyzeArrayAccess(ArrayAccessNode* expr);
 
     // 辅助方法
     std::shared_ptr<Type> stringToType(const std::string& type_name);

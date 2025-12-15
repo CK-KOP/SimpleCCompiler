@@ -11,6 +11,7 @@ enum class TypeKind {
     Void,       // void
     Function,   // 函数类型
     Pointer,    // 指针类型 (预留)
+    Array,      // 数组类型
 };
 
 // 类型基类
@@ -28,6 +29,7 @@ public:
     bool isVoid() const { return kind_ == TypeKind::Void; }
     bool isFunction() const { return kind_ == TypeKind::Function; }
     bool isPointer() const { return kind_ == TypeKind::Pointer; }
+    bool isArray() const { return kind_ == TypeKind::Array; }
 
     virtual std::string toString() const = 0;
 
@@ -96,6 +98,24 @@ public:
 
     std::string toString() const override {
         return base_type_->toString() + "*";
+    }
+};
+
+// 数组类型
+class ArrayType : public Type {
+private:
+    std::shared_ptr<Type> element_type_;  // 元素类型
+    int size_;                             // 数组大小
+
+public:
+    ArrayType(std::shared_ptr<Type> elem, int size)
+        : Type(TypeKind::Array), element_type_(elem), size_(size) {}
+
+    std::shared_ptr<Type> getElementType() const { return element_type_; }
+    int getSize() const { return size_; }
+
+    std::string toString() const override {
+        return element_type_->toString() + "[" + std::to_string(size_) + "]";
     }
 };
 

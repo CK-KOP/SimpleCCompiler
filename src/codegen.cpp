@@ -22,6 +22,7 @@ void CodeGen::genFunction(FunctionDeclNode* func) {
 
     // 重置局部变量表
     locals_.clear();
+    array_sizes_.clear();
     local_offset_ = 0;
 
     // 为参数分配空间（参数在调用前已压栈，位于负偏移）
@@ -70,23 +71,48 @@ void CodeGen::genStatement(StmtNode* stmt) {
 }
 
 void CodeGen::genCompoundStmt(CompoundStmtNode* stmt) {
+    // 保存当前作用域状态
+    int saved_offset = local_offset_;
+    auto saved_locals = locals_;
+    auto saved_arrays = array_sizes_;
+
     for (const auto& s : stmt->getStatements()) {
         genStatement(s.get());
     }
+
+    // 恢复作用域状态（回收局部变量空间）
+    int vars_to_pop = local_offset_ - saved_offset;
+    if (vars_to_pop > 0) {
+        code_.emit(OpCode::ADJSP, vars_to_pop);
+    }
+    local_offset_ = saved_offset;
+    locals_ = saved_locals;
+    array_sizes_ = saved_arrays;
 }
 
 void CodeGen::genVarDecl(VarDeclStmtNode* stmt) {
-    int offset = allocLocal(stmt->getName());
-
-    if (stmt->hasInitializer()) {
-        genExpression(stmt->getInitializer());
-        // 值已在栈顶，就是变量的存储位置
+    if (stmt->isArray()) {
+        // 数组声明：分配连续空间并初始化为0
+        int size = stmt->getArraySize();
+        int offset = allocArray(stmt->getName(), size);
+        for (int i = 0; i < size; i++) {
+            code_.emit(OpCode::PUSH, 0);
+        }
+        (void)offset;
     } else {
-        // 默认初始化为 0
-        code_.emit(OpCode::PUSH, 0);
+        // 普通变量声明
+        int offset = allocLocal(stmt->getName());
+
+        if (stmt->hasInitializer()) {
+            genExpression(stmt->getInitializer());
+            // 值已在栈顶，就是变量的存储位置
+        } else {
+            // 默认初始化为 0
+            code_.emit(OpCode::PUSH, 0);
+        }
+        // 变量值保留在栈上，offset 指向它
+        (void)offset;  // offset 用于后续 LOAD/STORE
     }
-    // 变量值保留在栈上，offset 指向它
-    (void)offset;  // offset 用于后续 LOAD/STORE
 }
 
 void CodeGen::genIfStmt(IfStmtNode* stmt) {
@@ -252,12 +278,28 @@ void CodeGen::genExpression(ExprNode* expr) {
         genUnaryOp(unary);
     } else if (auto* call = dynamic_cast<FunctionCallNode*>(expr)) {
         genFunctionCall(call);
+    } else if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr)) {
+        genArrayAccess(arr);
     }
 }
 
 void CodeGen::genBinaryOp(BinaryOpNode* expr) {
     // 赋值运算符特殊处理
     if (expr->getOperator() == TokenType::Assign) {
+        // 检查是否是数组赋值
+        if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr->getLeft())) {
+            // arr[index] = value
+            int base = getLocal(arr->getArrayName());
+            genExpression(arr->getIndex());   // 计算下标，压入栈
+            genExpression(expr->getRight());  // 计算值，压入栈
+            code_.emit(OpCode::STOREI, base); // 存储：弹出value和index
+            // 赋值表达式应该返回值，重新加载
+            genExpression(arr->getIndex());
+            code_.emit(OpCode::LOADI, base);
+            return;
+        }
+
+        // 普通变量赋值
         auto* var = dynamic_cast<VariableNode*>(expr->getLeft());
         if (!var) {
             throw std::runtime_error("Invalid assignment target");
@@ -333,4 +375,22 @@ int CodeGen::getLocal(const std::string& name) {
         throw std::runtime_error("Unknown variable: " + name);
     }
     return it->second;
+}
+
+void CodeGen::genArrayAccess(ArrayAccessNode* expr) {
+    int base = getLocal(expr->getArrayName());
+    genExpression(expr->getIndex());  // 计算下标，压入栈
+    code_.emit(OpCode::LOADI, base);  // 间接加载
+}
+
+int CodeGen::allocArray(const std::string& name, int size) {
+    int offset = local_offset_;
+    locals_[name] = offset;
+    array_sizes_[name] = size;
+    local_offset_ += size;  // 预留 size 个位置
+    return offset;
+}
+
+bool CodeGen::isArray(const std::string& name) {
+    return array_sizes_.find(name) != array_sizes_.end();
 }

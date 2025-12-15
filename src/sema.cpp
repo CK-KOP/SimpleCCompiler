@@ -92,13 +92,13 @@ void Sema::analyzeCompoundStatement(CompoundStmtNode* stmt) {
 }
 
 void Sema::analyzeVarDecl(VarDeclStmtNode* stmt) {
-    auto var_type = stringToType(stmt->getType());
-    if (!var_type) {
+    auto base_type = stringToType(stmt->getType());
+    if (!base_type) {
         error("未知的变量类型: " + stmt->getType());
         return;
     }
 
-    if (var_type->isVoid()) {
+    if (base_type->isVoid()) {
         error("变量不能声明为 void 类型: " + stmt->getName());
         return;
     }
@@ -109,10 +109,22 @@ void Sema::analyzeVarDecl(VarDeclStmtNode* stmt) {
         return;
     }
 
+    // 确定实际类型（普通变量或数组）
+    std::shared_ptr<Type> var_type;
+    if (stmt->isArray()) {
+        if (stmt->getArraySize() <= 0) {
+            error("数组大小必须为正整数: " + stmt->getName());
+            return;
+        }
+        var_type = std::make_shared<ArrayType>(base_type, stmt->getArraySize());
+    } else {
+        var_type = base_type;
+    }
+
     // 添加到符号表
     scope_.addSymbol(stmt->getName(), var_type, SymbolKind::Variable);
 
-    // 分析初始化表达式
+    // 分析初始化表达式（数组暂不支持初始化）
     if (stmt->hasInitializer()) {
         analyzeExpression(stmt->getInitializer());
     }
@@ -197,6 +209,9 @@ std::shared_ptr<Type> Sema::analyzeExpression(ExprNode* expr) {
     if (auto* call = dynamic_cast<FunctionCallNode*>(expr)) {
         return analyzeFunctionCall(call);
     }
+    if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr)) {
+        return analyzeArrayAccess(arr);
+    }
     return Type::getIntType();  // 默认
 }
 
@@ -219,10 +234,11 @@ std::shared_ptr<Type> Sema::analyzeBinaryOp(BinaryOpNode* expr) {
     auto left_type = analyzeExpression(expr->getLeft());
     auto right_type = analyzeExpression(expr->getRight());
 
-    // 赋值运算符：左边必须是变量
+    // 赋值运算符：左边必须是变量或数组元素
     if (expr->getOperator() == TokenType::Assign) {
-        if (!dynamic_cast<VariableNode*>(expr->getLeft())) {
-            error("赋值运算符左边必须是变量");
+        if (!dynamic_cast<VariableNode*>(expr->getLeft()) &&
+            !dynamic_cast<ArrayAccessNode*>(expr->getLeft())) {
+            error("赋值运算符左边必须是变量或数组元素");
         }
     }
 
@@ -265,4 +281,30 @@ std::shared_ptr<Type> Sema::analyzeFunctionCall(FunctionCallNode* expr) {
     }
 
     return func_type->getReturnType();
+}
+
+std::shared_ptr<Type> Sema::analyzeArrayAccess(ArrayAccessNode* expr) {
+    // 查找数组变量
+    auto symbol = scope_.findSymbol(expr->getArrayName());
+    if (!symbol) {
+        error("未声明的数组: " + expr->getArrayName());
+        return Type::getIntType();
+    }
+
+    // 检查是否是数组类型
+    if (!symbol->getType()->isArray()) {
+        error("'" + expr->getArrayName() + "' 不是数组类型");
+        return Type::getIntType();
+    }
+
+    // 分析下标表达式
+    auto index_type = analyzeExpression(expr->getIndex());
+
+    // 获取元素类型
+    auto arr_type = std::dynamic_pointer_cast<ArrayType>(symbol->getType());
+    if (arr_type) {
+        return arr_type->getElementType();
+    }
+
+    return Type::getIntType();
 }

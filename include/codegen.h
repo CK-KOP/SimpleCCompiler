@@ -13,6 +13,8 @@ private:
 
     // 当前函数的局部变量表: 变量名 -> 栈偏移
     std::unordered_map<std::string, int> locals_;
+    // 数组大小表: 数组名 -> 大小 (非数组变量不在此表中)
+    std::unordered_map<std::string, int> array_sizes_;
     int local_offset_ = 0;  // 下一个局部变量的偏移
 
     // 用于 break/continue
@@ -38,9 +40,12 @@ private:
     void genBinaryOp(BinaryOpNode* expr);
     void genUnaryOp(UnaryOpNode* expr);
     void genFunctionCall(FunctionCallNode* expr);
+    void genArrayAccess(ArrayAccessNode* expr);
 
     int allocLocal(const std::string& name);
+    int allocArray(const std::string& name, int size);
     int getLocal(const std::string& name);
+    bool isArray(const std::string& name);
 };
 
 #endif // CODEGEN_H

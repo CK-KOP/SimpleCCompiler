@@ -24,6 +24,8 @@ enum class TokenType {
     RParen,         // )
     LBrace,         // {
     RBrace,         // }
+    LBracket,       // [
+    RBracket,       // ]
 
     // 分隔符
     Semicolon,      // ;
