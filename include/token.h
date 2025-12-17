@@ -44,6 +44,7 @@ enum class TokenType {
     LogicalAnd,     // &&
     LogicalOr,      // ||
     LogicalNot,     // !
+    Ampersand,      // & (取地址)
 
     // 关键字
     Int,            // int

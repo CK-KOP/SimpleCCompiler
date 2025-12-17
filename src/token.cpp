@@ -36,6 +36,7 @@ std::string Token::typeToString(TokenType type) {
         case TokenType::LogicalAnd: return "LogicalAnd";
         case TokenType::LogicalOr:  return "LogicalOr";
         case TokenType::LogicalNot: return "LogicalNot";
+        case TokenType::Ampersand:  return "Ampersand";
         case TokenType::Int:       return "Int";
         case TokenType::Void:      return "Void";
         case TokenType::Return:    return "Return";

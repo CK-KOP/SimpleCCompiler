@@ -32,6 +32,9 @@ std::string opcodeName(OpCode op) {
         case OpCode::CALL:  return "CALL";
         case OpCode::RET:   return "RET";
         case OpCode::RETV:  return "RETV";
+        case OpCode::LEA:   return "LEA";
+        case OpCode::LOADP: return "LOADP";
+        case OpCode::STOREP:return "STOREP";
         case OpCode::PRINT: return "PRINT";
         case OpCode::HALT:  return "HALT";
         case OpCode::POPN:  return "POPN";
@@ -49,7 +52,7 @@ std::string ByteCode::toString() const {
             code[i].op == OpCode::JZ || code[i].op == OpCode::JNZ ||
             code[i].op == OpCode::CALL || code[i].op == OpCode::POPN ||
             code[i].op == OpCode::LOADI || code[i].op == OpCode::STOREI ||
-            code[i].op == OpCode::ADJSP) {
+            code[i].op == OpCode::ADJSP || code[i].op == OpCode::LEA) {
             ss << " " << code[i].operand;
         }
         ss << "\n";
@@ -233,6 +236,7 @@ int VM::execute(const ByteCode& bytecode) {
                 sp_ = fp_;
                 fp_ = pop();
                 pc_ = pop();
+                push(0);  // void 函数也 push 假返回值，保证 POPN 正常工作
                 break;
             }
 
@@ -267,6 +271,26 @@ int VM::execute(const ByteCode& bytecode) {
             case OpCode::ADJSP: {
                 // 简单调整栈指针，不保留任何值
                 sp_ -= instr.operand;
+                break;
+            }
+
+            case OpCode::LEA:
+                // 加载有效地址：将 fp + operand 压栈
+                push(fp_ + instr.operand);
+                break;
+
+            case OpCode::LOADP: {
+                // 从栈顶地址加载值
+                int32_t addr = pop();
+                push(stack_[addr]);
+                break;
+            }
+
+            case OpCode::STOREP: {
+                // 存储值到栈顶地址：栈顶是值，栈顶-1是地址
+                int32_t value = pop();
+                int32_t addr = pop();
+                stack_[addr] = value;
                 break;
             }
         }

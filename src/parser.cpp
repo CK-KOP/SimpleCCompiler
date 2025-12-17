@@ -47,12 +47,17 @@ std::unique_ptr<ExprNode> Parser::parseAssignment() {
         advance(); // 消费=
         auto right = parseAssignment(); // 右结合：递归调用自身，a = b = c 解析为 a = (b = c)
 
-        // 安全检查：赋值运算符左边必须是变量或数组访问
+        // 安全检查：赋值运算符左边必须是变量、数组访问或解引用表达式
         if (dynamic_cast<VariableNode*>(expr.get()) || dynamic_cast<ArrayAccessNode*>(expr.get())) {
             return std::make_unique<BinaryOpNode>(std::move(expr), TokenType::Assign, std::move(right));
-        } else {
-            throw std::runtime_error("赋值运算符左边必须是变量或数组元素");
         }
+        // 检查是否是解引用表达式 *p = value
+        if (auto* unary = dynamic_cast<UnaryOpNode*>(expr.get())) {
+            if (unary->getOperator() == TokenType::Multiply) {
+                return std::make_unique<BinaryOpNode>(std::move(expr), TokenType::Assign, std::move(right));
+            }
+        }
+        throw std::runtime_error("赋值运算符左边必须是变量、数组元素或解引用表达式");
     }
 
     return expr;
@@ -152,10 +157,11 @@ std::unique_ptr<ExprNode> Parser::parseFactor() {
 }
 
 std::unique_ptr<ExprNode> Parser::parseUnary() {
-    // 解析一元运算符: +x, -x, !x（优先级很高，仅次于括号）
+    // 解析一元运算符: +x, -x, !x, &x, *p（优先级很高，仅次于括号）
     if (match(TokenType::Plus)) {
         advance(); // 消费+
-        return parseUnary(); // 递归处理+号，正号通常不改变值
+        auto operand = parseUnary(); // 递归解析操作数
+        return std::make_unique<UnaryOpNode>(TokenType::Plus, std::move(operand));
     }
 
     if (match(TokenType::Minus)) {
@@ -168,6 +174,18 @@ std::unique_ptr<ExprNode> Parser::parseUnary() {
         advance(); // 消费!
         auto operand = parseUnary(); // 递归解析操作数
         return std::make_unique<UnaryOpNode>(TokenType::LogicalNot, std::move(operand));
+    }
+
+    if (match(TokenType::Ampersand)) {
+        advance(); // 消费&
+        auto operand = parseUnary(); // 递归解析操作数
+        return std::make_unique<UnaryOpNode>(TokenType::Ampersand, std::move(operand));
+    }
+
+    if (match(TokenType::Multiply)) {
+        advance(); // 消费*
+        auto operand = parseUnary(); // 递归解析操作数，支持**p这样的表达式
+        return std::make_unique<UnaryOpNode>(TokenType::Multiply, std::move(operand));
     }
 
     // 没有一元运算符，直接解析基础表达式
@@ -366,6 +384,11 @@ std::unique_ptr<FunctionDeclNode> Parser::parseFunctionDeclaration() {
         }
         std::string param_type = currentToken_.getValue();
         advance();
+        // 处理指针类型参数
+        while (match(TokenType::Multiply)) {
+            param_type += "*";
+            advance();
+        }
 
         if (!match(TokenType::Identifier)) {
             throw std::runtime_error("期望参数名");
@@ -383,6 +406,11 @@ std::unique_ptr<FunctionDeclNode> Parser::parseFunctionDeclaration() {
             }
             param_type = currentToken_.getValue();
             advance();
+            // 处理指针类型参数
+            while (match(TokenType::Multiply)) {
+                param_type += "*";
+                advance();
+            }
 
             if (!match(TokenType::Identifier)) {
                 throw std::runtime_error("期望参数名");
@@ -447,9 +475,16 @@ Parser::Precedence Parser::getOperatorPrecedence(TokenType op) {
     }
 }
 
-// 解析变量声明语句：int x; 或 int y = 5; 或 int arr[10];
+// 解析变量声明语句：int x; 或 int y = 5; 或 int arr[10]; 或 int *p;
 std::unique_ptr<VarDeclStmtNode> Parser::parseVariableDeclaration() {
     advance(); // 消费int
+
+    // 构建类型字符串，处理指针类型 int*, int**, ...
+    std::string varType = "int";
+    while (match(TokenType::Multiply)) {
+        varType += "*";
+        advance(); // 消费*
+    }
 
     // 获取变量名
     if (!match(TokenType::Identifier)) {
@@ -469,7 +504,7 @@ std::unique_ptr<VarDeclStmtNode> Parser::parseVariableDeclaration() {
         advance(); // 消费数字
         consume(TokenType::RBracket, "期望 ']' 在数组大小后");
         consume(TokenType::Semicolon, "期望分号");
-        return std::make_unique<VarDeclStmtNode>("int", varName, arraySize);
+        return std::make_unique<VarDeclStmtNode>(varType, varName, arraySize);
     }
 
     std::unique_ptr<ExprNode> initializer = nullptr;
@@ -482,7 +517,7 @@ std::unique_ptr<VarDeclStmtNode> Parser::parseVariableDeclaration() {
 
     consume(TokenType::Semicolon, "期望分号");
 
-    return std::make_unique<VarDeclStmtNode>("int", varName, std::move(initializer));
+    return std::make_unique<VarDeclStmtNode>(varType, varName, std::move(initializer));
 }
 
 // 解析返回语句：return; 或 return x;

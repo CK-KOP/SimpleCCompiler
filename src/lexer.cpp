@@ -298,12 +298,12 @@ Token Lexer::readMultiCharOperator(TokenType type) {
                 return Token(TokenType::Greater, ">", token_line, token_column);
             }
 
-        case TokenType::LogicalAnd:       // &&
+        case TokenType::LogicalAnd:       // & 或 &&
             if (second_char == '&') {
                 advance(); // 消费&
                 return Token(TokenType::LogicalAnd, "&&", token_line, token_column);
             } else {
-                return Token(TokenType::Invalid, "无效运算符", token_line, token_column);
+                return Token(TokenType::Ampersand, "&", token_line, token_column);
             }
 
         case TokenType::LogicalOr:        // ||

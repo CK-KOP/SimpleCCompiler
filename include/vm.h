@@ -38,6 +38,11 @@ enum class OpCode : uint8_t {
     RET,        // 返回
     RETV,       // 带返回值返回
 
+    // 指针操作
+    LEA,        // 加载有效地址：将 fp + operand 压栈
+    LOADP,      // 从栈顶地址加载值
+    STOREP,     // 存储值到栈顶地址
+
     // 其他
     PRINT,      // 打印栈顶（调试用）
     HALT,       // 停止

@@ -299,6 +299,19 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
             return;
         }
 
+        // 检查是否是解引用赋值 *p = value
+        if (auto* unary = dynamic_cast<UnaryOpNode*>(expr->getLeft())) {
+            if (unary->getOperator() == TokenType::Multiply) {
+                genExpression(unary->getOperand());  // 计算指针值（地址）
+                genExpression(expr->getRight());     // 计算要存储的值
+                code_.emit(OpCode::STOREP);          // 存储到地址
+                // 赋值表达式返回值，重新加载
+                genExpression(unary->getOperand());
+                code_.emit(OpCode::LOADP);
+                return;
+            }
+        }
+
         // 普通变量赋值
         auto* var = dynamic_cast<VariableNode*>(expr->getLeft());
         if (!var) {
@@ -333,9 +346,27 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
 }
 
 void CodeGen::genUnaryOp(UnaryOpNode* expr) {
+    // 取地址运算符 &
+    if (expr->getOperator() == TokenType::Ampersand) {
+        if (auto* var = dynamic_cast<VariableNode*>(expr->getOperand())) {
+            int offset = getLocal(var->getName());
+            code_.emit(OpCode::LEA, offset);  // 将变量地址压栈
+            return;
+        }
+        throw std::runtime_error("Cannot take address of non-variable");
+    }
+
+    // 解引用运算符 * (读取)
+    if (expr->getOperator() == TokenType::Multiply) {
+        genExpression(expr->getOperand());  // 计算指针值（地址）
+        code_.emit(OpCode::LOADP);          // 从该地址加载值
+        return;
+    }
+
     genExpression(expr->getOperand());
 
     switch (expr->getOperator()) {
+        case TokenType::Plus:       break;  // 一元+不需要操作
         case TokenType::Minus:      code_.emit(OpCode::NEG); break;
         case TokenType::LogicalNot: code_.emit(OpCode::NOT); break;
         default:
