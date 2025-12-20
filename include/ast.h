@@ -2,6 +2,7 @@
 #define AST_H
 
 #include "../include/token.h"
+#include "../include/type.h"
 #include <string>
 #include <memory>
 #include <vector>
@@ -19,9 +20,15 @@ public:
 
 // 表达式节点基类
 class ExprNode : public ASTNode {
+private:
+    std::shared_ptr<Type> resolved_type_;
+
 public:
     ~ExprNode() override = default;
     virtual std::string toString() const override = 0;
+
+    void setResolvedType(std::shared_ptr<Type> type) { resolved_type_ = type; }
+    std::shared_ptr<Type> getResolvedType() const { return resolved_type_; }
 };
 
 // 数字字面量节点
@@ -144,10 +151,11 @@ public:
 // 变量声明语句节点（支持普通变量和数组）
 class VarDeclStmtNode : public StmtNode {
 private:
-    std::string type_;                                   // 变量类型
-    std::string name_;                                   // 变量名
-    std::unique_ptr<ExprNode> initializer_;              // 初始化表达式（可为空）
-    int array_size_;                                     // 数组大小，-1表示非数组
+    std::string type_;
+    std::string name_;
+    std::unique_ptr<ExprNode> initializer_;
+    int array_size_;
+    std::shared_ptr<Type> resolved_type_;
 
 public:
     // 普通变量声明
@@ -164,6 +172,9 @@ public:
     bool hasInitializer() const { return initializer_ != nullptr; }
     bool isArray() const { return array_size_ > 0; }
     int getArraySize() const { return array_size_; }
+
+    void setResolvedType(std::shared_ptr<Type> type) { resolved_type_ = type; }
+    std::shared_ptr<Type> getResolvedType() const { return resolved_type_; }
 
     std::string toString() const override {
         std::string result = "VarDecl(" + type_ + " " + name_;

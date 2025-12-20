@@ -175,7 +175,7 @@ int main(int argc, char* argv[]) {
                 }
 
                 CodeGen codegen;
-                ByteCode bytecode = codegen.generate(program.get(), &sema);
+                ByteCode bytecode = codegen.generate(program.get());
 
                 if (mode == Mode::Code) {
                     std::cout << "=== 生成的字节码 ===\n\n";

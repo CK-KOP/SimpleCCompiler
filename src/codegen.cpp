@@ -1,10 +1,7 @@
 #include "../include/codegen.h"
-#include "../include/sema.h"
 #include <stdexcept>
 
-ByteCode CodeGen::generate(ProgramNode* program, const Sema* sema) {
-    sema_ = sema;  // 保存 Sema 引用
-
+ByteCode CodeGen::generate(ProgramNode* program) {
     // 生成所有函数的代码
     for (const auto& func : program->getFunctions()) {
         genFunction(func.get());
@@ -94,27 +91,27 @@ void CodeGen::genCompoundStmt(CompoundStmtNode* stmt) {
 }
 
 void CodeGen::genVarDecl(VarDeclStmtNode* stmt) {
-    if (stmt->isArray()) {
-        // 数组声明：分配连续空间并初始化为0
-        int size = stmt->getArraySize();
+    auto type = stmt->getResolvedType();
+    if (!type) {
+        throw std::runtime_error("Variable type not resolved: " + stmt->getName());
+    }
+
+    if (type->isArray()) {
+        auto* array_type = static_cast<ArrayType*>(type.get());
+        int size = array_type->getSize();
         int offset = allocArray(stmt->getName(), size);
         for (int i = 0; i < size; i++) {
             code_.emit(OpCode::PUSH, 0);
         }
         (void)offset;
     } else {
-        // 普通变量声明
         int offset = allocLocal(stmt->getName());
-
         if (stmt->hasInitializer()) {
             genExpression(stmt->getInitializer());
-            // 值已在栈顶，就是变量的存储位置
         } else {
-            // 默认初始化为 0
             code_.emit(OpCode::PUSH, 0);
         }
-        // 变量值保留在栈上，offset 指向它
-        (void)offset;  // offset 用于后续 LOAD/STORE
+        (void)offset;
     }
 }
 

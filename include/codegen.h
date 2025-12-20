@@ -6,14 +6,10 @@
 #include <string>
 #include <unordered_map>
 
-// 前向声明
-class Sema;
-
 // 代码生成器：将 AST 转换为字节码
 class CodeGen {
 private:
     ByteCode code_;
-    const Sema* sema_;  // Sema 引用（用于查询类型信息）
 
     // 当前函数的局部变量表: 变量名 -> 栈偏移
     std::unordered_map<std::string, int> locals_;
@@ -26,7 +22,7 @@ private:
     std::vector<int> continue_targets_;
 
 public:
-    ByteCode generate(ProgramNode* program, const Sema* sema);
+    ByteCode generate(ProgramNode* program);
 
 private:
     void genFunction(FunctionDeclNode* func);

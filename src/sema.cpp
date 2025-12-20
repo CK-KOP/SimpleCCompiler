@@ -130,6 +130,9 @@ void Sema::analyzeVarDecl(VarDeclStmtNode* stmt) {
         var_type = base_type;
     }
 
+    // 填充 AST 节点的类型信息
+    stmt->setResolvedType(var_type);
+
     // 添加到符号表
     scope_.addSymbol(stmt->getName(), var_type);
 
@@ -203,25 +206,26 @@ void Sema::analyzeExprStatement(ExprStmtNode* stmt) {
 }
 
 std::shared_ptr<Type> Sema::analyzeExpression(ExprNode* expr) {
+    std::shared_ptr<Type> type;
+
     if (auto* num = dynamic_cast<NumberNode*>(expr)) {
-        return Type::getIntType();
+        type = Type::getIntType();
+    } else if (auto* var = dynamic_cast<VariableNode*>(expr)) {
+        type = analyzeVariable(var);
+    } else if (auto* binary = dynamic_cast<BinaryOpNode*>(expr)) {
+        type = analyzeBinaryOp(binary);
+    } else if (auto* unary = dynamic_cast<UnaryOpNode*>(expr)) {
+        type = analyzeUnaryOp(unary);
+    } else if (auto* call = dynamic_cast<FunctionCallNode*>(expr)) {
+        type = analyzeFunctionCall(call);
+    } else if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr)) {
+        type = analyzeArrayAccess(arr);
+    } else {
+        type = Type::getIntType();
     }
-    if (auto* var = dynamic_cast<VariableNode*>(expr)) {
-        return analyzeVariable(var);
-    }
-    if (auto* binary = dynamic_cast<BinaryOpNode*>(expr)) {
-        return analyzeBinaryOp(binary);
-    }
-    if (auto* unary = dynamic_cast<UnaryOpNode*>(expr)) {
-        return analyzeUnaryOp(unary);
-    }
-    if (auto* call = dynamic_cast<FunctionCallNode*>(expr)) {
-        return analyzeFunctionCall(call);
-    }
-    if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr)) {
-        return analyzeArrayAccess(arr);
-    }
-    return Type::getIntType();  // 默认
+
+    expr->setResolvedType(type);
+    return type;
 }
 
 std::shared_ptr<Type> Sema::analyzeVariable(VariableNode* expr) {

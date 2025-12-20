@@ -39,14 +39,6 @@ public:
     const std::vector<SemanticError>& getErrors() const { return errors_; }
     bool hasErrors() const { return !errors_.empty(); }
 
-    // 查询接口（供 CodeGen 使用）
-    const Scope& getScope() const { return scope_; }
-
-    std::shared_ptr<Type> getVariableType(const std::string& name) const {
-        auto symbol = scope_.findSymbol(name);
-        return symbol ? symbol->getType() : nullptr;
-    }
-
 private:
     // 分析函数定义
     void analyzeFunction(FunctionDeclNode* func);
