@@ -7,31 +7,18 @@
 #include <vector>
 #include <unordered_map>
 
-// 符号种类
-enum class SymbolKind {
-    Variable,   // 变量
-    Function,   // 函数
-    Parameter,  // 函数参数
-};
-
 // 符号：代表一个声明的变量或函数
 class Symbol {
 private:
     std::string name_;
     std::shared_ptr<Type> type_;
-    SymbolKind kind_;
 
 public:
-    Symbol(const std::string& name, std::shared_ptr<Type> type, SymbolKind kind)
-        : name_(name), type_(type), kind_(kind) {}
+    Symbol(const std::string& name, std::shared_ptr<Type> type)
+        : name_(name), type_(type) {}
 
     const std::string& getName() const { return name_; }
     std::shared_ptr<Type> getType() const { return type_; }
-    SymbolKind getKind() const { return kind_; }
-
-    bool isVariable() const { return kind_ == SymbolKind::Variable; }
-    bool isFunction() const { return kind_ == SymbolKind::Function; }
-    bool isParameter() const { return kind_ == SymbolKind::Parameter; }
 };
 
 // 环境：一个作用域内的符号表
@@ -80,8 +67,8 @@ public:
     }
 
     // 在当前作用域添加符号
-    bool addSymbol(const std::string& name, std::shared_ptr<Type> type, SymbolKind kind) {
-        auto symbol = std::make_shared<Symbol>(name, type, kind);
+    bool addSymbol(const std::string& name, std::shared_ptr<Type> type) {
+        auto symbol = std::make_shared<Symbol>(name, type);
         return envs_.back()->addSymbol(symbol);
     }
 

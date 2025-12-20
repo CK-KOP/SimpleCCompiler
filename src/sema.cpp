@@ -49,7 +49,7 @@ void Sema::analyzeFunction(FunctionDeclNode* func) {
     }
 
     // 添加函数到符号表
-    scope_.addSymbol(func->getName(), func_type, SymbolKind::Function);
+    scope_.addSymbol(func->getName(), func_type);
 
     // 进入函数作用域
     scope_.enterScope();
@@ -58,7 +58,7 @@ void Sema::analyzeFunction(FunctionDeclNode* func) {
     // 添加参数到作用域
     for (const auto& param : func->getParams()) {
         auto param_type = stringToType(param.type);
-        if (!scope_.addSymbol(param.name, param_type, SymbolKind::Parameter)) {
+        if (!scope_.addSymbol(param.name, param_type)) {
             error("参数名重复: " + param.name);
         }
     }
@@ -131,7 +131,7 @@ void Sema::analyzeVarDecl(VarDeclStmtNode* stmt) {
     }
 
     // 添加到符号表
-    scope_.addSymbol(stmt->getName(), var_type, SymbolKind::Variable);
+    scope_.addSymbol(stmt->getName(), var_type);
 
     // 分析初始化表达式（数组暂不支持初始化）
     if (stmt->hasInitializer()) {
@@ -231,7 +231,7 @@ std::shared_ptr<Type> Sema::analyzeVariable(VariableNode* expr) {
         return Type::getIntType();
     }
 
-    if (symbol->isFunction()) {
+    if (symbol->getType()->isFunction()) {
         // 函数名作为表达式使用（函数指针，暂不支持）
         return symbol->getType();
     }
@@ -306,7 +306,7 @@ std::shared_ptr<Type> Sema::analyzeFunctionCall(FunctionCallNode* expr) {
         return Type::getIntType();
     }
 
-    if (!symbol->isFunction()) {
+    if (!symbol->getType()->isFunction()) {
         error("'" + expr->getName() + "' 不是函数");
         return Type::getIntType();
     }

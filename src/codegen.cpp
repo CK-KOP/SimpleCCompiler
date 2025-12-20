@@ -1,7 +1,10 @@
 #include "../include/codegen.h"
+#include "../include/sema.h"
 #include <stdexcept>
 
-ByteCode CodeGen::generate(ProgramNode* program) {
+ByteCode CodeGen::generate(ProgramNode* program, const Sema* sema) {
+    sema_ = sema;  // 保存 Sema 引用
+
     // 生成所有函数的代码
     for (const auto& func : program->getFunctions()) {
         genFunction(func.get());
