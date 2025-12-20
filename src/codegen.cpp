@@ -255,10 +255,8 @@ void CodeGen::genDoWhileStmt(DoWhileStmtNode* stmt) {
 void CodeGen::genReturnStmt(ReturnStmtNode* stmt) {
     if (stmt->hasExpression()) {
         genExpression(stmt->getExpression());
-        code_.emit(OpCode::RETV);
-    } else {
-        code_.emit(OpCode::RET);
     }
+    code_.emit(OpCode::RET);
 }
 
 void CodeGen::genExprStmt(ExprStmtNode* stmt) {
@@ -289,25 +287,28 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
         // 检查是否是数组赋值
         if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr->getLeft())) {
             // arr[index] = value
-            int base = getLocal(arr->getArrayName());
-            genExpression(arr->getIndex());   // 计算下标，压入栈
-            genExpression(expr->getRight());  // 计算值，压入栈
-            code_.emit(OpCode::STOREI, base); // 存储：弹出value和index
+            genExpression(expr->getRight());  // 计算值
+            genExpression(arr->getIndex());   // 计算下标
+            code_.emit(OpCode::LEA, getLocal(arr->getArrayName())); // 数组基地址
+            code_.emit(OpCode::ADDPTRD, 1);   // base + index * 1
+            code_.emit(OpCode::STOREM);       // 存储
             // 赋值表达式应该返回值，重新加载
             genExpression(arr->getIndex());
-            code_.emit(OpCode::LOADI, base);
+            code_.emit(OpCode::LEA, getLocal(arr->getArrayName()));
+            code_.emit(OpCode::ADDPTRD, 1);
+            code_.emit(OpCode::LOADM);
             return;
         }
 
         // 检查是否是解引用赋值 *p = value
         if (auto* unary = dynamic_cast<UnaryOpNode*>(expr->getLeft())) {
             if (unary->getOperator() == TokenType::Multiply) {
-                genExpression(unary->getOperand());  // 计算指针值（地址）
                 genExpression(expr->getRight());     // 计算要存储的值
-                code_.emit(OpCode::STOREP);          // 存储到地址
+                genExpression(unary->getOperand());  // 计算指针值（地址）
+                code_.emit(OpCode::STOREM);          // 存储到地址
                 // 赋值表达式返回值，重新加载
                 genExpression(unary->getOperand());
-                code_.emit(OpCode::LOADP);
+                code_.emit(OpCode::LOADM);
                 return;
             }
         }
@@ -359,7 +360,7 @@ void CodeGen::genUnaryOp(UnaryOpNode* expr) {
     // 解引用运算符 * (读取)
     if (expr->getOperator() == TokenType::Multiply) {
         genExpression(expr->getOperand());  // 计算指针值（地址）
-        code_.emit(OpCode::LOADP);          // 从该地址加载值
+        code_.emit(OpCode::LOADM);          // 从该地址加载值
         return;
     }
 
@@ -409,9 +410,10 @@ int CodeGen::getLocal(const std::string& name) {
 }
 
 void CodeGen::genArrayAccess(ArrayAccessNode* expr) {
-    int base = getLocal(expr->getArrayName());
-    genExpression(expr->getIndex());  // 计算下标，压入栈
-    code_.emit(OpCode::LOADI, base);  // 间接加载
+    genExpression(expr->getIndex());  // 计算下标
+    code_.emit(OpCode::LEA, getLocal(expr->getArrayName())); // 数组基地址
+    code_.emit(OpCode::ADDPTRD, 1);   // base + index * 1
+    code_.emit(OpCode::LOADM);        // 加载值
 }
 
 int CodeGen::allocArray(const std::string& name, int size) {

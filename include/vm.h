@@ -13,10 +13,15 @@ enum class OpCode : uint8_t {
     POP,        // 弹出
 
     // 变量操作
-    LOAD,       // 加载局部变量 (相对于帧指针的偏移)
-    STORE,      // 存储局部变量
-    LOADI,      // 间接加载：基地址在operand，偏移在栈顶
-    STOREI,     // 间接存储：基地址在operand，偏移和值在栈上
+    LOAD,       // 加载局部变量: push(stack[fp + operand])
+    STORE,      // 存储局部变量: stack[fp + operand] = pop()
+    LOADM,      // 内存加载: addr = pop(); push(stack[addr])
+    STOREM,     // 内存存储: addr = pop(); value = pop(); stack[addr] = value
+
+    // 地址计算
+    LEA,        // 加载有效地址: push(fp + operand)
+    ADDPTR,     // 地址加静态偏移: addr = pop(); push(addr + operand)
+    ADDPTRD,    // 地址加动态偏移: base = pop(); index = pop(); push(base + index * operand)
 
     // 算术运算
     ADD, SUB, MUL, DIV, MOD,
@@ -36,18 +41,12 @@ enum class OpCode : uint8_t {
     // 函数
     CALL,       // 调用函数
     RET,        // 返回
-    RETV,       // 带返回值返回
-
-    // 指针操作
-    LEA,        // 加载有效地址：将 fp + operand 压栈
-    LOADP,      // 从栈顶地址加载值
-    STOREP,     // 存储值到栈顶地址
 
     // 其他
     PRINT,      // 打印栈顶（调试用）
     HALT,       // 停止
-    POPN,       // 弹出 N 个值（保留栈顶，函数返回时使用）
-    ADJSP       // 调整栈指针（不保留任何值）
+    ADJSP,      // 调整栈指针: sp -= operand
+    POPN        // 弹出N个值但保留栈顶: 用于函数调用后清理参数
 };
 
 // 单条指令

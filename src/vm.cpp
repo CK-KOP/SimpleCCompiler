@@ -5,41 +5,40 @@
 
 std::string opcodeName(OpCode op) {
     switch (op) {
-        case OpCode::PUSH:  return "PUSH";
-        case OpCode::POP:   return "POP";
-        case OpCode::LOAD:  return "LOAD";
-        case OpCode::STORE: return "STORE";
-        case OpCode::LOADI: return "LOADI";
-        case OpCode::STOREI:return "STOREI";
-        case OpCode::ADD:   return "ADD";
-        case OpCode::SUB:   return "SUB";
-        case OpCode::MUL:   return "MUL";
-        case OpCode::DIV:   return "DIV";
-        case OpCode::MOD:   return "MOD";
-        case OpCode::NEG:   return "NEG";
-        case OpCode::EQ:    return "EQ";
-        case OpCode::NE:    return "NE";
-        case OpCode::LT:    return "LT";
-        case OpCode::LE:    return "LE";
-        case OpCode::GT:    return "GT";
-        case OpCode::GE:    return "GE";
-        case OpCode::AND:   return "AND";
-        case OpCode::OR:    return "OR";
-        case OpCode::NOT:   return "NOT";
-        case OpCode::JMP:   return "JMP";
-        case OpCode::JZ:    return "JZ";
-        case OpCode::JNZ:   return "JNZ";
-        case OpCode::CALL:  return "CALL";
-        case OpCode::RET:   return "RET";
-        case OpCode::RETV:  return "RETV";
-        case OpCode::LEA:   return "LEA";
-        case OpCode::LOADP: return "LOADP";
-        case OpCode::STOREP:return "STOREP";
-        case OpCode::PRINT: return "PRINT";
-        case OpCode::HALT:  return "HALT";
-        case OpCode::POPN:  return "POPN";
-        case OpCode::ADJSP: return "ADJSP";
-        default:            return "???";
+        case OpCode::PUSH:   return "PUSH";
+        case OpCode::POP:    return "POP";
+        case OpCode::LOAD:   return "LOAD";
+        case OpCode::STORE:  return "STORE";
+        case OpCode::LOADM:  return "LOADM";
+        case OpCode::STOREM: return "STOREM";
+        case OpCode::LEA:    return "LEA";
+        case OpCode::ADDPTR: return "ADDPTR";
+        case OpCode::ADDPTRD:return "ADDPTRD";
+        case OpCode::ADD:    return "ADD";
+        case OpCode::SUB:    return "SUB";
+        case OpCode::MUL:    return "MUL";
+        case OpCode::DIV:    return "DIV";
+        case OpCode::MOD:    return "MOD";
+        case OpCode::NEG:    return "NEG";
+        case OpCode::EQ:     return "EQ";
+        case OpCode::NE:     return "NE";
+        case OpCode::LT:     return "LT";
+        case OpCode::LE:     return "LE";
+        case OpCode::GT:     return "GT";
+        case OpCode::GE:     return "GE";
+        case OpCode::AND:    return "AND";
+        case OpCode::OR:     return "OR";
+        case OpCode::NOT:    return "NOT";
+        case OpCode::JMP:    return "JMP";
+        case OpCode::JZ:     return "JZ";
+        case OpCode::JNZ:    return "JNZ";
+        case OpCode::CALL:   return "CALL";
+        case OpCode::RET:    return "RET";
+        case OpCode::PRINT:  return "PRINT";
+        case OpCode::HALT:   return "HALT";
+        case OpCode::ADJSP:  return "ADJSP";
+        case OpCode::POPN:   return "POPN";
+        default:             return "???";
     }
 }
 
@@ -50,9 +49,9 @@ std::string ByteCode::toString() const {
         if (code[i].op == OpCode::PUSH || code[i].op == OpCode::LOAD ||
             code[i].op == OpCode::STORE || code[i].op == OpCode::JMP ||
             code[i].op == OpCode::JZ || code[i].op == OpCode::JNZ ||
-            code[i].op == OpCode::CALL || code[i].op == OpCode::POPN ||
-            code[i].op == OpCode::LOADI || code[i].op == OpCode::STOREI ||
-            code[i].op == OpCode::ADJSP || code[i].op == OpCode::LEA) {
+            code[i].op == OpCode::CALL || code[i].op == OpCode::LEA ||
+            code[i].op == OpCode::ADDPTR || code[i].op == OpCode::ADDPTRD ||
+            code[i].op == OpCode::ADJSP || code[i].op == OpCode::POPN) {
             ss << " " << code[i].operand;
         }
         ss << "\n";
@@ -117,20 +116,38 @@ int VM::execute(const ByteCode& bytecode) {
                 stack_[fp_ + instr.operand] = pop();
                 break;
 
-            case OpCode::LOADI: {
-                // 间接加载：基地址在operand，偏移在栈顶
-                // stack[fp + base + index]
-                int32_t index = pop();
-                push(stack_[fp_ + instr.operand + index]);
+            case OpCode::LOADM: {
+                // 内存加载: addr = pop(); push(stack[addr])
+                int32_t addr = pop();
+                push(stack_[addr]);
                 break;
             }
 
-            case OpCode::STOREI: {
-                // 间接存储：基地址在operand，偏移和值在栈上
-                // 栈顶是value，栈顶-1是index
+            case OpCode::STOREM: {
+                // 内存存储: addr = pop(); value = pop(); stack[addr] = value
+                int32_t addr = pop();
                 int32_t value = pop();
+                stack_[addr] = value;
+                break;
+            }
+
+            case OpCode::LEA:
+                // 加载有效地址: push(fp + operand)
+                push(fp_ + instr.operand);
+                break;
+
+            case OpCode::ADDPTR: {
+                // 地址加静态偏移: addr = pop(); push(addr + operand)
+                int32_t addr = pop();
+                push(addr + instr.operand);
+                break;
+            }
+
+            case OpCode::ADDPTRD: {
+                // 地址加动态偏移: base = pop(); index = pop(); push(base + index * operand)
+                int32_t base = pop();
                 int32_t index = pop();
-                stack_[fp_ + instr.operand + index] = value;
+                push(base + index * instr.operand);
                 break;
             }
 
@@ -232,20 +249,23 @@ int VM::execute(const ByteCode& bytecode) {
             }
 
             case OpCode::RET: {
-                // 恢复帧指针和返回地址
-                sp_ = fp_;
-                fp_ = pop();
-                pc_ = pop();
-                push(0);  // void 函数也 push 假返回值，保证 POPN 正常工作
-                break;
-            }
+                // 保存返回值（如果栈上有值的话，读取但不pop）
+                int32_t retval = (sp_ > fp_) ? stack_[sp_ - 1] : 0;
 
-            case OpCode::RETV: {
-                int32_t retval = pop();
+                // 恢复栈帧
                 sp_ = fp_;
-                fp_ = pop();
-                pc_ = pop();
+                fp_ = pop();  // 恢复旧的帧指针
+                int32_t ret_addr = pop();  // 获取返回地址
+
+                // 压入返回值
                 push(retval);
+
+                // 跳转
+                if (ret_addr == -1) {
+                    running_ = false;
+                } else {
+                    pc_ = ret_addr;
+                }
                 break;
             }
 
@@ -257,40 +277,20 @@ int VM::execute(const ByteCode& bytecode) {
                 running_ = false;
                 break;
 
-            case OpCode::POPN: {
-                // 弹出 N 个值，但保留栈顶
-                int n = instr.operand;
-                if (n > 0) {
-                    int32_t top = stack_[sp_ - 1];
-                    sp_ -= n;
-                    stack_[sp_ - 1] = top;
-                }
-                break;
-            }
-
             case OpCode::ADJSP: {
-                // 简单调整栈指针，不保留任何值
+                // 调整栈指针: sp -= operand
                 sp_ -= instr.operand;
                 break;
             }
 
-            case OpCode::LEA:
-                // 加载有效地址：将 fp + operand 压栈
-                push(fp_ + instr.operand);
-                break;
-
-            case OpCode::LOADP: {
-                // 从栈顶地址加载值
-                int32_t addr = pop();
-                push(stack_[addr]);
-                break;
-            }
-
-            case OpCode::STOREP: {
-                // 存储值到栈顶地址：栈顶是值，栈顶-1是地址
-                int32_t value = pop();
-                int32_t addr = pop();
-                stack_[addr] = value;
+            case OpCode::POPN: {
+                // 弹出N个值但保留栈顶: 用于函数调用后清理参数
+                int n = instr.operand;
+                if (n > 0 && sp_ > 0) {
+                    int32_t retval = stack_[sp_ - 1];
+                    sp_ -= n;
+                    stack_[sp_ - 1] = retval;
+                }
                 break;
             }
         }
