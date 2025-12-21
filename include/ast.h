@@ -130,29 +130,11 @@ private:
     std::unique_ptr<ExprNode> index_;         // 下标表达式
 
 public:
-    // 新构造函数：支持链式数组访问
     ArrayAccessNode(std::unique_ptr<ExprNode> array, std::unique_ptr<ExprNode> index)
         : array_(std::move(array)), index_(std::move(index)) {}
 
-    // 兼容旧构造函数
-    ArrayAccessNode(const std::string& name, std::unique_ptr<ExprNode> index)
-        : array_(std::make_unique<VariableNode>(name)), index_(std::move(index)) {}
-
     ExprNode* getArray() const { return array_.get(); }
     ExprNode* getIndex() const { return index_.get(); }
-
-    // 兼容旧接口：获取最底层的数组名
-    const std::string& getArrayName() const {
-        if (auto* var = dynamic_cast<VariableNode*>(array_.get())) {
-            return var->getName();
-        }
-        // 递归获取
-        if (auto* arr = dynamic_cast<ArrayAccessNode*>(array_.get())) {
-            return arr->getArrayName();
-        }
-        static std::string empty;
-        return empty;
-    }
 
     std::string toString() const override {
         return "ArrayAccess(" + array_->toString() + ", " + index_->toString() + ")";
@@ -180,11 +162,7 @@ public:
     VarDeclStmtNode(const std::string& type, const std::string& name, std::unique_ptr<ExprNode> initializer = nullptr)
         : type_(type), name_(name), initializer_(std::move(initializer)) {}
 
-    // 数组声明（单维，兼容旧接口）
-    VarDeclStmtNode(const std::string& type, const std::string& name, int array_size)
-        : type_(type), name_(name), initializer_(nullptr), array_dims_({array_size}) {}
-
-    // 多维数组声明
+    // 数组声明（支持多维）
     VarDeclStmtNode(const std::string& type, const std::string& name, std::vector<int> dims)
         : type_(type), name_(name), initializer_(nullptr), array_dims_(std::move(dims)) {}
 
@@ -193,7 +171,6 @@ public:
     ExprNode* getInitializer() const { return initializer_.get(); }
     bool hasInitializer() const { return initializer_ != nullptr; }
     bool isArray() const { return !array_dims_.empty(); }
-    int getArraySize() const { return array_dims_.empty() ? -1 : array_dims_[0]; }
     const std::vector<int>& getArrayDims() const { return array_dims_; }
 
     void setResolvedType(std::shared_ptr<Type> type) { resolved_type_ = type; }
