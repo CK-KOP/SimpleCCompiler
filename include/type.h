@@ -33,6 +33,9 @@ public:
 
     virtual std::string toString() const = 0;
 
+    // 获取类型占用的slot数（用于codegen）
+    virtual int getSlotCount() const { return 1; }
+
     // 预定义的基本类型（单例）
     static std::shared_ptr<Type> getIntType();
     static std::shared_ptr<Type> getVoidType();
@@ -113,6 +116,11 @@ public:
 
     std::shared_ptr<Type> getElementType() const { return element_type_; }
     int getSize() const { return size_; }
+
+    // 数组总slot数 = 元素slot数 * 数组大小
+    int getSlotCount() const override {
+        return element_type_->getSlotCount() * size_;
+    }
 
     std::string toString() const override {
         return element_type_->toString() + "[" + std::to_string(size_) + "]";

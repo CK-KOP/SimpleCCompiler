@@ -123,21 +123,39 @@ public:
     }
 };
 
-// 数组访问节点：arr[index]
+// 数组访问节点：arr[index] 或 arr[i][j]
 class ArrayAccessNode : public ExprNode {
 private:
-    std::string array_name_;              // 数组名
-    std::unique_ptr<ExprNode> index_;     // 下标表达式
+    std::unique_ptr<ExprNode> array_;         // 数组表达式（可以是变量或另一个数组访问）
+    std::unique_ptr<ExprNode> index_;         // 下标表达式
 
 public:
-    ArrayAccessNode(const std::string& name, std::unique_ptr<ExprNode> index)
-        : array_name_(name), index_(std::move(index)) {}
+    // 新构造函数：支持链式数组访问
+    ArrayAccessNode(std::unique_ptr<ExprNode> array, std::unique_ptr<ExprNode> index)
+        : array_(std::move(array)), index_(std::move(index)) {}
 
-    const std::string& getArrayName() const { return array_name_; }
+    // 兼容旧构造函数
+    ArrayAccessNode(const std::string& name, std::unique_ptr<ExprNode> index)
+        : array_(std::make_unique<VariableNode>(name)), index_(std::move(index)) {}
+
+    ExprNode* getArray() const { return array_.get(); }
     ExprNode* getIndex() const { return index_.get(); }
 
+    // 兼容旧接口：获取最底层的数组名
+    const std::string& getArrayName() const {
+        if (auto* var = dynamic_cast<VariableNode*>(array_.get())) {
+            return var->getName();
+        }
+        // 递归获取
+        if (auto* arr = dynamic_cast<ArrayAccessNode*>(array_.get())) {
+            return arr->getArrayName();
+        }
+        static std::string empty;
+        return empty;
+    }
+
     std::string toString() const override {
-        return "ArrayAccess(" + array_name_ + ", " + index_->toString() + ")";
+        return "ArrayAccess(" + array_->toString() + ", " + index_->toString() + ")";
     }
 };
 
@@ -148,38 +166,43 @@ public:
     virtual std::string toString() const override = 0;
 };
 
-// 变量声明语句节点（支持普通变量和数组）
+// 变量声明语句节点（支持普通变量、指针和多维数组）
 class VarDeclStmtNode : public StmtNode {
 private:
-    std::string type_;
+    std::string type_;                        // 基础类型（含指针，如 "int*"）
     std::string name_;
     std::unique_ptr<ExprNode> initializer_;
-    int array_size_;
+    std::vector<int> array_dims_;             // 数组各维度大小，空表示非数组
     std::shared_ptr<Type> resolved_type_;
 
 public:
     // 普通变量声明
     VarDeclStmtNode(const std::string& type, const std::string& name, std::unique_ptr<ExprNode> initializer = nullptr)
-        : type_(type), name_(name), initializer_(std::move(initializer)), array_size_(-1) {}
+        : type_(type), name_(name), initializer_(std::move(initializer)) {}
 
-    // 数组声明，暂时不支持初始化
+    // 数组声明（单维，兼容旧接口）
     VarDeclStmtNode(const std::string& type, const std::string& name, int array_size)
-        : type_(type), name_(name), initializer_(nullptr), array_size_(array_size) {}
+        : type_(type), name_(name), initializer_(nullptr), array_dims_({array_size}) {}
+
+    // 多维数组声明
+    VarDeclStmtNode(const std::string& type, const std::string& name, std::vector<int> dims)
+        : type_(type), name_(name), initializer_(nullptr), array_dims_(std::move(dims)) {}
 
     const std::string& getType() const { return type_; }
     const std::string& getName() const { return name_; }
     ExprNode* getInitializer() const { return initializer_.get(); }
     bool hasInitializer() const { return initializer_ != nullptr; }
-    bool isArray() const { return array_size_ > 0; }
-    int getArraySize() const { return array_size_; }
+    bool isArray() const { return !array_dims_.empty(); }
+    int getArraySize() const { return array_dims_.empty() ? -1 : array_dims_[0]; }
+    const std::vector<int>& getArrayDims() const { return array_dims_; }
 
     void setResolvedType(std::shared_ptr<Type> type) { resolved_type_ = type; }
     std::shared_ptr<Type> getResolvedType() const { return resolved_type_; }
 
     std::string toString() const override {
         std::string result = "VarDecl(" + type_ + " " + name_;
-        if (isArray()) {
-            result += "[" + std::to_string(array_size_) + "]";
+        for (int dim : array_dims_) {
+            result += "[" + std::to_string(dim) + "]";
         }
         if (initializer_) {
             result += " = " + initializer_->toString();

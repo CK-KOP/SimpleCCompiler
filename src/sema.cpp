@@ -118,16 +118,18 @@ void Sema::analyzeVarDecl(VarDeclStmtNode* stmt) {
         return;
     }
 
-    // 确定实际类型（普通变量或数组）
-    std::shared_ptr<Type> var_type;
-    if (stmt->isArray()) {
-        if (stmt->getArraySize() <= 0) {
-            error("数组大小必须为正整数: " + stmt->getName());
-            return;
+    // 确定实际类型（普通变量或多维数组）
+    std::shared_ptr<Type> var_type = base_type;
+    const auto& dims = stmt->getArrayDims();
+    if (!dims.empty()) {
+        // 从最内层开始构建数组类型：int arr[3][4] -> ArrayType(ArrayType(int, 4), 3)
+        for (auto it = dims.rbegin(); it != dims.rend(); ++it) {
+            if (*it <= 0) {
+                error("数组大小必须为正整数: " + stmt->getName());
+                return;
+            }
+            var_type = std::make_shared<ArrayType>(var_type, *it);
         }
-        var_type = std::make_shared<ArrayType>(base_type, stmt->getArraySize());
-    } else {
-        var_type = base_type;
     }
 
     // 填充 AST 节点的类型信息
@@ -353,27 +355,21 @@ std::shared_ptr<Type> Sema::analyzeFunctionCall(FunctionCallNode* expr) {
 }
 
 std::shared_ptr<Type> Sema::analyzeArrayAccess(ArrayAccessNode* expr) {
-    // 查找数组变量
-    auto symbol = scope_.findSymbol(expr->getArrayName());
-    if (!symbol) {
-        error("未声明的数组: " + expr->getArrayName());
-        return Type::getIntType();
-    }
-
-    // 检查是否是数组类型
-    if (!symbol->getType()->isArray()) {
-        error("'" + expr->getArrayName() + "' 不是数组类型");
-        return Type::getIntType();
-    }
+    // 分析数组表达式（可能是变量或另一个数组访问）
+    auto array_type = analyzeExpression(expr->getArray());
 
     // 分析下标表达式
-    auto index_type = analyzeExpression(expr->getIndex());
+    analyzeExpression(expr->getIndex());
 
-    // 获取元素类型
-    auto arr_type = std::dynamic_pointer_cast<ArrayType>(symbol->getType());
-    if (arr_type) {
+    // 检查是否可以进行下标访问
+    if (array_type->isArray()) {
+        auto arr_type = std::dynamic_pointer_cast<ArrayType>(array_type);
         return arr_type->getElementType();
+    } else if (array_type->isPointer()) {
+        auto ptr_type = std::dynamic_pointer_cast<PointerType>(array_type);
+        return ptr_type->getBaseType();
+    } else {
+        error("下标运算符只能用于数组或指针类型");
+        return Type::getIntType();
     }
-
-    return Type::getIntType();
 }

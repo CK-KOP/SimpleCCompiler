@@ -207,14 +207,15 @@ std::unique_ptr<ExprNode> Parser::parsePrimary() {
         if (match(TokenType::LParen)) {
             return parseFunctionCall(name);
         }
-        // 检查是否是数组访问
-        if (match(TokenType::LBracket)) {
+        // 检查是否是数组访问（支持多维）
+        std::unique_ptr<ExprNode> expr = std::make_unique<VariableNode>(name);
+        while (match(TokenType::LBracket)) {
             advance(); // 消费[
             auto index = parseExpression();
             consume(TokenType::RBracket, "期望 ']' 在数组下标后");
-            return std::make_unique<ArrayAccessNode>(name, std::move(index));
+            expr = std::make_unique<ArrayAccessNode>(std::move(expr), std::move(index));
         }
-        return std::make_unique<VariableNode>(name);
+        return expr;
     }
 
     if (match(TokenType::LParen)) {
@@ -475,7 +476,7 @@ Parser::Precedence Parser::getOperatorPrecedence(TokenType op) {
     }
 }
 
-// 解析变量声明语句：int x; 或 int y = 5; 或 int arr[10]; 或 int *p;
+// 解析变量声明语句：int x; 或 int y = 5; 或 int arr[10]; 或 int *p; 或 int arr[3][4]; 或 int *arr[10];
 std::unique_ptr<VarDeclStmtNode> Parser::parseVariableDeclaration() {
     advance(); // 消费int
 
@@ -494,17 +495,21 @@ std::unique_ptr<VarDeclStmtNode> Parser::parseVariableDeclaration() {
     std::string varName = currentToken_.getValue();
     advance(); // 消费变量名
 
-    // 检查是否是数组声明
-    if (match(TokenType::LBracket)) {
+    // 检查是否是数组声明（支持多维）
+    std::vector<int> dims;
+    while (match(TokenType::LBracket)) {
         advance(); // 消费[
         if (!match(TokenType::Number)) {
             throw std::runtime_error("期望数组大小，但得到: " + currentToken_.toString());
         }
-        int arraySize = std::stoi(currentToken_.getValue());
+        dims.push_back(std::stoi(currentToken_.getValue()));
         advance(); // 消费数字
         consume(TokenType::RBracket, "期望 ']' 在数组大小后");
+    }
+
+    if (!dims.empty()) {
         consume(TokenType::Semicolon, "期望分号");
-        return std::make_unique<VarDeclStmtNode>(varType, varName, arraySize);
+        return std::make_unique<VarDeclStmtNode>(varType, varName, std::move(dims));
     }
 
     std::unique_ptr<ExprNode> initializer = nullptr;

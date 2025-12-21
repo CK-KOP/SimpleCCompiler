@@ -45,6 +45,7 @@ private:
     void genUnaryOp(UnaryOpNode* expr);
     void genFunctionCall(FunctionCallNode* expr);
     void genArrayAccess(ArrayAccessNode* expr);
+    void genArrayAccessAddr(ArrayAccessNode* expr);
 
     int allocLocal(const std::string& name);
     int allocArray(const std::string& name, int size);
