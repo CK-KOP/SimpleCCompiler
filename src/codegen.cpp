@@ -25,10 +25,21 @@ void CodeGen::genFunction(FunctionDeclNode* func) {
     array_sizes_.clear();
     local_offset_ = 0;
 
-    // 为参数分配空间（参数在调用前已压栈，位于负偏移）
+    // 记录参数 slot 数 (用于计算 ret_slot_offset)
+    // TODO: 支持 struct 参数时，需计算总 slot 数
     const auto& params = func->getParams();
+    current_param_slots_ = params.size();
+
+    // 为参数分配空间（参数在调用前已压栈，位于负偏移）
+    // 栈帧布局:
+    //   [ret_slot]   fp - 3 - param_slots (由 caller 预留)
+    //   [param_n]    fp - 3 - (n-1)
+    //   ...
+    //   [param_1]    fp - 3
+    //   [ret_addr]   fp - 2
+    //   [old_fp]     fp - 1
+    //   fp ->
     for (size_t i = 0; i < params.size(); ++i) {
-        // 参数位于 fp 之前：fp-2 是返回地址，fp-3 是第一个参数...
         locals_[params[i].name] = -(int)i - 3;
     }
 
@@ -37,7 +48,10 @@ void CodeGen::genFunction(FunctionDeclNode* func) {
 
     // 如果函数没有显式 return，添加默认返回
     if (code_.code.empty() || code_.code.back().op != OpCode::RET) {
-        code_.emit(OpCode::RET);
+        code_.emit(OpCode::PUSH, 0);  // 默认返回值 0
+        // ret_slot_offset = -3 - param_slots
+        // TODO: 支持 struct 返回值时，需调整偏移计算
+        code_.emit(OpCode::RET, -3 - current_param_slots_);
     }
 }
 
@@ -255,8 +269,12 @@ void CodeGen::genDoWhileStmt(DoWhileStmtNode* stmt) {
 void CodeGen::genReturnStmt(ReturnStmtNode* stmt) {
     if (stmt->hasExpression()) {
         genExpression(stmt->getExpression());
+    } else {
+        code_.emit(OpCode::PUSH, 0);  // void 函数默认返回 0
     }
-    code_.emit(OpCode::RET);
+    // ret_slot_offset = -3 - param_slots
+    // TODO: 支持 struct 返回值时，需调整偏移计算
+    code_.emit(OpCode::RET, -3 - current_param_slots_);
 }
 
 void CodeGen::genExprStmt(ExprStmtNode* stmt) {
@@ -376,22 +394,34 @@ void CodeGen::genUnaryOp(UnaryOpNode* expr) {
 }
 
 void CodeGen::genFunctionCall(FunctionCallNode* expr) {
-    // 压入参数（从右到左）
+    // 新 ABI: caller 预留 return slot，调用后清理参数
+    // 栈布局 (调用前):
+    //   [ret_slot]   <- caller 预留，用于接收返回值
+    //   [param_n]
+    //   ...
+    //   [param_1]
+    // TODO: 支持 struct 返回值时，ret_slot 可能占多个 slot
+
+    // 1. 预留 return slot (当前固定 1 slot)
+    code_.emit(OpCode::PUSH, 0);
+
+    // 2. 压入参数（从右到左）
+    // TODO: 支持 struct 参数时，每个参数可能占多个 slot
     for (int i = expr->getArgs().size() - 1; i >= 0; --i) {
         genExpression(expr->getArgs()[i].get());
     }
 
-    // 查找函数地址
+    // 3. 查找函数地址并调用
     auto it = code_.functions.find(expr->getName());
     if (it == code_.functions.end()) {
         throw std::runtime_error("Unknown function: " + expr->getName());
     }
-
     code_.emit(OpCode::CALL, it->second);
 
-    // 调用后清理参数，保留返回值
+    // 4. caller 清理参数，return slot 留在栈顶
+    // TODO: 支持 struct 参数时，需计算参数总 slot 数
     if (!expr->getArgs().empty()) {
-        code_.emit(OpCode::POPN, expr->getArgs().size());
+        code_.emit(OpCode::ADJSP, expr->getArgs().size());
     }
 }
 

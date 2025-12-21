@@ -36,9 +36,8 @@ std::string opcodeName(OpCode op) {
         case OpCode::RET:    return "RET";
         case OpCode::PRINT:  return "PRINT";
         case OpCode::HALT:   return "HALT";
-        case OpCode::ADJSP:  return "ADJSP";
-        case OpCode::POPN:   return "POPN";
-        default:             return "???";
+        case OpCode::ADJSP:    return "ADJSP";
+        default:               return "???";
     }
 }
 
@@ -51,7 +50,7 @@ std::string ByteCode::toString() const {
             code[i].op == OpCode::JZ || code[i].op == OpCode::JNZ ||
             code[i].op == OpCode::CALL || code[i].op == OpCode::LEA ||
             code[i].op == OpCode::ADDPTR || code[i].op == OpCode::ADDPTRD ||
-            code[i].op == OpCode::ADJSP || code[i].op == OpCode::POPN) {
+            code[i].op == OpCode::ADJSP || code[i].op == OpCode::RET) {
             ss << " " << code[i].operand;
         }
         ss << "\n";
@@ -78,8 +77,14 @@ int VM::execute(const ByteCode& bytecode) {
         throw std::runtime_error("No entry point (main function)");
     }
 
-    // 设置虚拟调用帧：返回地址=-1表示程序结束
+    // 设置虚拟调用帧
+    // 栈布局 (模拟 caller 调用 main):
+    //   [ret_slot]   sp=0, 用于接收 main 的返回值
+    //   [ret_addr]   sp=1, -1 表示程序结束
+    //   [old_fp]     sp=2
+    //   fp = sp = 3
     sp_ = 0;
+    push(0);    // return slot for main
     push(-1);   // 返回地址（-1 表示结束）
     push(0);    // 旧的帧指针
     fp_ = sp_;
@@ -249,18 +254,23 @@ int VM::execute(const ByteCode& bytecode) {
             }
 
             case OpCode::RET: {
-                // 保存返回值（如果栈上有值的话，读取但不pop）
-                int32_t retval = (sp_ > fp_) ? stack_[sp_ - 1] : 0;
+                // 新 ABI: operand = ret_slot_offset (相对于 fp)
+                // 栈帧布局 (caller 视角，调用前):
+                //   [ret_slot]   fp + ret_slot_offset (由 caller 预留)
+                //   [param_n]    ...
+                //   [param_1]    fp - 3
+                //   [ret_addr]   fp - 2
+                //   [old_fp]     fp - 1
+                //   fp ->
+                // TODO: 支持 struct 返回值时，需循环写入多个 slot
+                int ret_slot_offset = instr.operand;
+                int32_t retval = (sp_ > fp_) ? pop() : 0;
+                stack_[fp_ + ret_slot_offset] = retval;
 
-                // 恢复栈帧
                 sp_ = fp_;
                 fp_ = pop();  // 恢复旧的帧指针
                 int32_t ret_addr = pop();  // 获取返回地址
 
-                // 压入返回值
-                push(retval);
-
-                // 跳转
                 if (ret_addr == -1) {
                     running_ = false;
                 } else {
@@ -280,17 +290,6 @@ int VM::execute(const ByteCode& bytecode) {
             case OpCode::ADJSP: {
                 // 调整栈指针: sp -= operand
                 sp_ -= instr.operand;
-                break;
-            }
-
-            case OpCode::POPN: {
-                // 弹出N个值但保留栈顶: 用于函数调用后清理参数
-                int n = instr.operand;
-                if (n > 0 && sp_ > 0) {
-                    int32_t retval = stack_[sp_ - 1];
-                    sp_ -= n;
-                    stack_[sp_ - 1] = retval;
-                }
                 break;
             }
         }

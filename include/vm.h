@@ -40,13 +40,13 @@ enum class OpCode : uint8_t {
 
     // 函数
     CALL,       // 调用函数
-    RET,        // 返回
+    RET,        // 返回: operand = ret_slot_offset (相对于 fp)
+                // TODO: 支持 struct 返回值时，需考虑多 slot 写入
 
     // 其他
     PRINT,      // 打印栈顶（调试用）
     HALT,       // 停止
-    ADJSP,      // 调整栈指针: sp -= operand
-    POPN        // 弹出N个值但保留栈顶: 用于函数调用后清理参数
+    ADJSP       // 调整栈指针: sp -= operand
 };
 
 // 单条指令

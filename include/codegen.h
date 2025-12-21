@@ -21,6 +21,10 @@ private:
     std::vector<int> break_targets_;
     std::vector<int> continue_targets_;
 
+    // 当前函数的参数 slot 数 (用于计算 ret_slot_offset)
+    // TODO: 支持 struct 参数时，需改为计算总 slot 数而非参数个数
+    int current_param_slots_ = 0;
+
 public:
     ByteCode generate(ProgramNode* program);
 
