@@ -27,9 +27,9 @@ void CodeGen::genFunction(FunctionDeclNode* func) {
 
     // 为参数分配空间（参数在调用前已压栈，位于负偏移）
     const auto& params = func->getParams();
-    for (int i = params.size() - 1; i >= 0; --i) {
+    for (size_t i = 0; i < params.size(); ++i) {
         // 参数位于 fp 之前：fp-2 是返回地址，fp-3 是第一个参数...
-        locals_[params[i].name] = -(int)(params.size() - i) - 2;
+        locals_[params[i].name] = -(int)i - 3;
     }
 
     // 生成函数体
@@ -376,9 +376,9 @@ void CodeGen::genUnaryOp(UnaryOpNode* expr) {
 }
 
 void CodeGen::genFunctionCall(FunctionCallNode* expr) {
-    // 压入参数（从左到右）
-    for (const auto& arg : expr->getArgs()) {
-        genExpression(arg.get());
+    // 压入参数（从右到左）
+    for (int i = expr->getArgs().size() - 1; i >= 0; --i) {
+        genExpression(expr->getArgs()[i].get());
     }
 
     // 查找函数地址
