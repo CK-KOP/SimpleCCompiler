@@ -138,7 +138,10 @@ void Sema::analyzeVarDecl(VarDeclStmtNode* stmt) {
 
     // 分析初始化表达式（数组暂不支持初始化）
     if (stmt->hasInitializer()) {
-        analyzeExpression(stmt->getInitializer());
+        auto init_type = analyzeExpression(stmt->getInitializer());
+        if (init_type->isVoid()) {
+            error("void 类型的值不能用于初始化变量");
+        }
     }
 }
 
@@ -260,6 +263,15 @@ std::shared_ptr<Type> Sema::analyzeBinaryOp(BinaryOpNode* expr) {
         if (!is_lvalue) {
             error("赋值运算符左边必须是变量、数组元素或解引用表达式");
         }
+        // 检查右边不能是 void
+        if (right_type->isVoid()) {
+            error("void 类型的值不能用于赋值");
+        }
+    } else {
+        // 其他二元运算：操作数不能是 void
+        if (left_type->isVoid() || right_type->isVoid()) {
+            error("void 类型的值不能用于表达式");
+        }
     }
 
     // 简化：所有二元运算返回 int
@@ -268,6 +280,11 @@ std::shared_ptr<Type> Sema::analyzeBinaryOp(BinaryOpNode* expr) {
 
 std::shared_ptr<Type> Sema::analyzeUnaryOp(UnaryOpNode* expr) {
     auto operand_type = analyzeExpression(expr->getOperand());
+
+    // void 类型不能用于任何一元运算
+    if (operand_type->isVoid()) {
+        error("void 类型的值不能用于表达式");
+    }
 
     // 取地址运算符 &
     if (expr->getOperator() == TokenType::Ampersand) {
