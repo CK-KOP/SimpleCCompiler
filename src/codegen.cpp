@@ -305,37 +305,14 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
     if (expr->getOperator() == TokenType::Assign) {
         // 检查是否是数组赋值（支持多维）
         if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr->getLeft())) {
-            // 获取元素大小
-            auto array_type = arr->getArray()->getResolvedType();
-            int elem_size = 1;
-            if (array_type && array_type->isArray()) {
-                auto* arr_t = static_cast<ArrayType*>(array_type.get());
-                elem_size = arr_t->getElementType()->getSlotCount();
-            }
-
             // arr[index] = value
             genExpression(expr->getRight());  // 计算值
-            genExpression(arr->getIndex());   // 计算下标
-
-            // 生成数组基地址
-            if (auto* var = dynamic_cast<VariableNode*>(arr->getArray())) {
-                code_.emit(OpCode::LEA, getLocal(var->getName()));
-            } else if (auto* inner = dynamic_cast<ArrayAccessNode*>(arr->getArray())) {
-                genArrayAccessAddr(inner);
-            }
-
-            code_.emit(OpCode::ADDPTRD, elem_size);
-            code_.emit(OpCode::STOREM);
+            genArrayAccessAddr(arr);          // 计算地址
+            code_.emit(OpCode::STOREM);       // 存储
 
             // 赋值表达式应该返回值，重新加载
-            genExpression(arr->getIndex());
-            if (auto* var = dynamic_cast<VariableNode*>(arr->getArray())) {
-                code_.emit(OpCode::LEA, getLocal(var->getName()));
-            } else if (auto* inner = dynamic_cast<ArrayAccessNode*>(arr->getArray())) {
-                genArrayAccessAddr(inner);
-            }
-            code_.emit(OpCode::ADDPTRD, elem_size);
-            code_.emit(OpCode::LOADM);
+            genArrayAccessAddr(arr);          // 重新计算地址
+            code_.emit(OpCode::LOADM);        // 加载返回值
             return;
         }
 
@@ -461,26 +438,8 @@ int CodeGen::getLocal(const std::string& name) {
 }
 
 void CodeGen::genArrayAccess(ArrayAccessNode* expr) {
-    // 获取数组表达式的类型来确定元素大小
-    auto array_type = expr->getArray()->getResolvedType();
-    int elem_size = 1;
-    if (array_type && array_type->isArray()) {
-        auto* arr = static_cast<ArrayType*>(array_type.get());
-        elem_size = arr->getElementType()->getSlotCount();
-    }
-
-    genExpression(expr->getIndex());  // 计算下标
-
-    // 生成数组基地址
-    if (auto* var = dynamic_cast<VariableNode*>(expr->getArray())) {
-        code_.emit(OpCode::LEA, getLocal(var->getName()));
-    } else if (auto* inner = dynamic_cast<ArrayAccessNode*>(expr->getArray())) {
-        // 嵌套数组访问，递归生成地址（不加载值）
-        genArrayAccessAddr(inner);
-    }
-
-    code_.emit(OpCode::ADDPTRD, elem_size);  // base + index * elem_size
-    code_.emit(OpCode::LOADM);               // 加载值
+    genArrayAccessAddr(expr);
+    code_.emit(OpCode::LOADM);
 }
 
 // 生成数组访问的地址（不加载值），用于多维数组
