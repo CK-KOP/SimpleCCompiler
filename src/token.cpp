@@ -27,6 +27,7 @@ std::string Token::typeToString(TokenType type) {
         case TokenType::Semicolon: return "Semicolon";
         case TokenType::Comma:     return "Comma";
         case TokenType::Dot:       return "Dot";
+        case TokenType::Arrow:     return "Arrow";
         case TokenType::Assign:    return "Assign";
         case TokenType::Equal:     return "Equal";
         case TokenType::NotEqual:    return "NotEqual";

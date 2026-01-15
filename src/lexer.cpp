@@ -55,6 +55,11 @@ Token Lexer::getNextToken() {
             int token_line = line_;
             int token_column = column_;
             advance();
+            // 检查是否是箭头运算符 ->
+            if (getCurrentChar() == '>') {
+                advance(); // 消费 >
+                return Token(TokenType::Arrow, "->", token_line, token_column);
+            }
             return Token(TokenType::Minus, "-", token_line, token_column);
         }
         case '*': {

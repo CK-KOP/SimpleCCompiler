@@ -4,8 +4,17 @@ std::shared_ptr<Type> Sema::stringToType(const std::string& type_name) {
     if (type_name == "int") return Type::getIntType();
     if (type_name == "void") return Type::getVoidType();
 
+    // 处理指针类型: int*, int**, struct Point*, ...
+    if (type_name.size() > 1 && type_name.back() == '*') {
+        // 递归获取基类型
+        auto base_type = stringToType(type_name.substr(0, type_name.size() - 1));
+        if (base_type) {
+            return std::make_shared<PointerType>(base_type);
+        }
+    }
+
     // 处理结构体类型: struct Point
-    if (type_name.substr(0, 7) == "struct ") {
+    if (type_name.size() > 7 && type_name.substr(0, 7) == "struct ") {
         std::string struct_name = type_name.substr(7);
         auto it = struct_types_.find(struct_name);
         if (it != struct_types_.end()) {
@@ -14,14 +23,6 @@ std::shared_ptr<Type> Sema::stringToType(const std::string& type_name) {
         return nullptr;
     }
 
-    // 处理指针类型: int*, int**, ...
-    if (type_name.size() > 1 && type_name.back() == '*') {
-        // 递归获取基类型
-        auto base_type = stringToType(type_name.substr(0, type_name.size() - 1));
-        if (base_type) {
-            return std::make_shared<PointerType>(base_type);
-        }
-    }
     return nullptr;
 }
 

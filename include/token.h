@@ -31,6 +31,7 @@ enum class TokenType {
     Semicolon,      // ;
     Comma,          // ,
     Dot,            // .
+    Arrow,          // ->
 
     // 赋值和比较运算符
     Assign,         // =
