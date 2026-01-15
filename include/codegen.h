@@ -46,9 +46,12 @@ private:
     void genFunctionCall(FunctionCallNode* expr);
     void genArrayAccess(ArrayAccessNode* expr);
     void genArrayAccessAddr(ArrayAccessNode* expr);
+    void genMemberAccess(MemberAccessNode* expr);
+    void genMemberAccessAddr(MemberAccessNode* expr);
 
     int allocLocal(const std::string& name);
     int allocArray(const std::string& name, int size);
+    int allocStruct(const std::string& name, int slot_count);
     int getLocal(const std::string& name);
     bool isArray(const std::string& name);
 };

@@ -110,13 +110,20 @@ void CodeGen::genVarDecl(VarDeclStmtNode* stmt) {
         throw std::runtime_error("Variable type not resolved: " + stmt->getName());
     }
 
-    // 使用 getSlotCount() 获取总slot数（支持多维数组和指针数组）
+    // 使用 getSlotCount() 获取总slot数（支持多维数组、指针数组和结构体）
     int slot_count = type->getSlotCount();
 
     if (type->isArray()) {
         int offset = allocArray(stmt->getName(), slot_count);
         for (int i = 0; i < slot_count; i++) {
             code_.emit(OpCode::PUSH, 0);
+        }
+        (void)offset;
+    } else if (type->isStruct()) {
+        // 结构体变量：分配多个slot
+        int offset = allocStruct(stmt->getName(), slot_count);
+        for (int i = 0; i < slot_count; i++) {
+            code_.emit(OpCode::PUSH, 0);  // 初始化为0
         }
         (void)offset;
     } else {
@@ -297,6 +304,8 @@ void CodeGen::genExpression(ExprNode* expr) {
         genFunctionCall(call);
     } else if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr)) {
         genArrayAccess(arr);
+    } else if (auto* member = dynamic_cast<MemberAccessNode*>(expr)) {
+        genMemberAccess(member);
     }
 }
 
@@ -313,6 +322,18 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
             // 赋值表达式应该返回值，重新加载
             genArrayAccessAddr(arr);          // 重新计算地址
             code_.emit(OpCode::LOADM);        // 加载返回值
+            return;
+        }
+
+        // 检查是否是成员访问赋值 obj.member = value
+        if (auto* member = dynamic_cast<MemberAccessNode*>(expr->getLeft())) {
+            genExpression(expr->getRight());  // 计算值
+            genMemberAccessAddr(member);      // 计算成员地址
+            code_.emit(OpCode::STOREM);       // 存储
+
+            // 赋值表达式返回值，重新加载
+            genMemberAccessAddr(member);
+            code_.emit(OpCode::LOADM);
             return;
         }
 
@@ -457,6 +478,9 @@ void CodeGen::genArrayAccessAddr(ArrayAccessNode* expr) {
         code_.emit(OpCode::LEA, getLocal(var->getName()));
     } else if (auto* inner = dynamic_cast<ArrayAccessNode*>(expr->getArray())) {
         genArrayAccessAddr(inner);
+    } else if (auto* member = dynamic_cast<MemberAccessNode*>(expr->getArray())) {
+        // 成员访问返回的数组：c.arr[0]
+        genMemberAccessAddr(member);
     }
 
     code_.emit(OpCode::ADDPTRD, elem_size);
@@ -470,6 +494,48 @@ int CodeGen::allocArray(const std::string& name, int size) {
     return offset;
 }
 
+int CodeGen::allocStruct(const std::string& name, int slot_count) {
+    int offset = local_offset_;
+    locals_[name] = offset;
+    local_offset_ += slot_count;  // 预留 slot_count 个位置
+    return offset;
+}
+
 bool CodeGen::isArray(const std::string& name) {
     return array_sizes_.find(name) != array_sizes_.end();
+}
+
+// 生成成员访问表达式（加载值）
+void CodeGen::genMemberAccess(MemberAccessNode* expr) {
+    genMemberAccessAddr(expr);
+    code_.emit(OpCode::LOADM);
+}
+
+// 生成成员访问地址
+void CodeGen::genMemberAccessAddr(MemberAccessNode* expr) {
+    // 获取对象类型
+    auto object_type = expr->getObject()->getResolvedType();
+    if (!object_type || !object_type->isStruct()) {
+        throw std::runtime_error("Member access on non-struct type");
+    }
+
+    auto struct_type = std::dynamic_pointer_cast<StructType>(object_type);
+    int member_offset = struct_type->getMemberOffset(expr->getMember());
+
+    // 计算对象基地址 + 成员偏移
+    if (auto* var = dynamic_cast<VariableNode*>(expr->getObject())) {
+        // 简单情况：obj.member
+        int base_offset = getLocal(var->getName());
+        code_.emit(OpCode::LEA, base_offset + member_offset);
+    } else if (auto* inner_member = dynamic_cast<MemberAccessNode*>(expr->getObject())) {
+        // 链式成员访问：obj.inner.member
+        genMemberAccessAddr(inner_member);
+        code_.emit(OpCode::ADDPTR, member_offset);
+    } else if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr->getObject())) {
+        // 数组元素的成员访问：arr[i].member
+        genArrayAccessAddr(arr);
+        code_.emit(OpCode::ADDPTR, member_offset);
+    } else {
+        throw std::runtime_error("Unsupported member access pattern");
+    }
 }

@@ -4,6 +4,16 @@ std::shared_ptr<Type> Sema::stringToType(const std::string& type_name) {
     if (type_name == "int") return Type::getIntType();
     if (type_name == "void") return Type::getVoidType();
 
+    // 处理结构体类型: struct Point
+    if (type_name.substr(0, 7) == "struct ") {
+        std::string struct_name = type_name.substr(7);
+        auto it = struct_types_.find(struct_name);
+        if (it != struct_types_.end()) {
+            return it->second;
+        }
+        return nullptr;
+    }
+
     // 处理指针类型: int*, int**, ...
     if (type_name.size() > 1 && type_name.back() == '*') {
         // 递归获取基类型
@@ -16,6 +26,12 @@ std::shared_ptr<Type> Sema::stringToType(const std::string& type_name) {
 }
 
 bool Sema::analyze(ProgramNode* program) {
+    // 先分析所有结构体定义
+    for (const auto& struct_decl : program->getStructs()) {
+        analyzeStructDecl(struct_decl.get());
+    }
+
+    // 再分析所有函数定义
     for (const auto& func : program->getFunctions()) {
         analyzeFunction(func.get());
     }
@@ -225,6 +241,8 @@ std::shared_ptr<Type> Sema::analyzeExpression(ExprNode* expr) {
         type = analyzeFunctionCall(call);
     } else if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr)) {
         type = analyzeArrayAccess(arr);
+    } else if (auto* member = dynamic_cast<MemberAccessNode*>(expr)) {
+        type = analyzeMemberAccess(member);
     } else {
         type = Type::getIntType();
     }
@@ -252,10 +270,11 @@ std::shared_ptr<Type> Sema::analyzeBinaryOp(BinaryOpNode* expr) {
     auto left_type = analyzeExpression(expr->getLeft());
     auto right_type = analyzeExpression(expr->getRight());
 
-    // 赋值运算符：左边必须是变量、数组元素或解引用表达式
+    // 赋值运算符：左边必须是变量、数组元素、成员访问或解引用表达式
     if (expr->getOperator() == TokenType::Assign) {
         bool is_lvalue = dynamic_cast<VariableNode*>(expr->getLeft()) ||
-                         dynamic_cast<ArrayAccessNode*>(expr->getLeft());
+                         dynamic_cast<ArrayAccessNode*>(expr->getLeft()) ||
+                         dynamic_cast<MemberAccessNode*>(expr->getLeft());
         // 检查是否是解引用表达式 *p
         if (auto* unary = dynamic_cast<UnaryOpNode*>(expr->getLeft())) {
             if (unary->getOperator() == TokenType::Multiply) {
@@ -263,7 +282,7 @@ std::shared_ptr<Type> Sema::analyzeBinaryOp(BinaryOpNode* expr) {
             }
         }
         if (!is_lvalue) {
-            error("赋值运算符左边必须是变量、数组元素或解引用表达式");
+            error("赋值运算符左边必须是变量、数组元素、成员访问或解引用表达式");
         }
         // 检查右边不能是 void
         if (right_type->isVoid()) {
@@ -372,4 +391,79 @@ std::shared_ptr<Type> Sema::analyzeArrayAccess(ArrayAccessNode* expr) {
         error("下标运算符只能用于数组或指针类型");
         return Type::getIntType();
     }
+}
+
+// 分析结构体定义
+void Sema::analyzeStructDecl(StructDeclNode* struct_decl) {
+    // 检查结构体是否重复定义
+    if (struct_types_.find(struct_decl->getName()) != struct_types_.end()) {
+        error("结构体重复定义: " + struct_decl->getName());
+        return;
+    }
+
+    // 创建结构体类型
+    auto struct_type = std::make_shared<StructType>(struct_decl->getName());
+
+    // 分析每个成员
+    for (const auto& member : struct_decl->getMembers()) {
+        // 解析成员类型
+        std::shared_ptr<Type> member_type;
+
+        if (member.isArray()) {
+            // 数组成员：从最内层开始构建类型
+            member_type = stringToType(member.type);
+            if (!member_type) {
+                error("未知的成员类型: " + member.type);
+                continue;
+            }
+
+            // 从右到左构建多维数组类型
+            for (auto it = member.array_dims.rbegin(); it != member.array_dims.rend(); ++it) {
+                member_type = std::make_shared<ArrayType>(member_type, *it);
+            }
+        } else {
+            // 普通成员
+            member_type = stringToType(member.type);
+            if (!member_type) {
+                error("未知的成员类型: " + member.type);
+                continue;
+            }
+        }
+
+        // 检查成员类型是否为void
+        if (member_type->isVoid()) {
+            error("结构体成员不能是void类型: " + member.name);
+            continue;
+        }
+
+        // 添加成员到结构体类型
+        struct_type->addMember(member.name, member_type);
+    }
+
+    // 注册结构体类型
+    struct_types_[struct_decl->getName()] = struct_type;
+}
+
+// 分析成员访问表达式
+std::shared_ptr<Type> Sema::analyzeMemberAccess(MemberAccessNode* expr) {
+    // 分析对象表达式
+    auto object_type = analyzeExpression(expr->getObject());
+
+    // 检查对象是否是结构体类型
+    if (!object_type->isStruct()) {
+        error("成员访问运算符只能用于结构体类型");
+        return Type::getIntType();
+    }
+
+    // 获取结构体类型
+    auto struct_type = std::dynamic_pointer_cast<StructType>(object_type);
+
+    // 查找成员类型
+    auto member_type = struct_type->getMemberType(expr->getMember());
+    if (!member_type) {
+        error("结构体 " + struct_type->getName() + " 没有成员: " + expr->getMember());
+        return Type::getIntType();
+    }
+
+    return member_type;
 }

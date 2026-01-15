@@ -26,6 +26,7 @@ std::string Token::typeToString(TokenType type) {
         case TokenType::RBracket:  return "RBracket";
         case TokenType::Semicolon: return "Semicolon";
         case TokenType::Comma:     return "Comma";
+        case TokenType::Dot:       return "Dot";
         case TokenType::Assign:    return "Assign";
         case TokenType::Equal:     return "Equal";
         case TokenType::NotEqual:    return "NotEqual";
@@ -47,6 +48,7 @@ std::string Token::typeToString(TokenType type) {
         case TokenType::Do:        return "Do";
         case TokenType::Break:     return "Break";
         case TokenType::Continue:  return "Continue";
+        case TokenType::Struct:    return "Struct";
         case TokenType::Identifier:return "Identifier";
         case TokenType::End:       return "End";
         case TokenType::Invalid:   return "Invalid";

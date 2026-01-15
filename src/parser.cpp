@@ -47,8 +47,10 @@ std::unique_ptr<ExprNode> Parser::parseAssignment() {
         advance(); // 消费=
         auto right = parseAssignment(); // 右结合：递归调用自身，a = b = c 解析为 a = (b = c)
 
-        // 安全检查：赋值运算符左边必须是变量、数组访问或解引用表达式
-        if (dynamic_cast<VariableNode*>(expr.get()) || dynamic_cast<ArrayAccessNode*>(expr.get())) {
+        // 安全检查：赋值运算符左边必须是变量、数组访问、成员访问或解引用表达式
+        if (dynamic_cast<VariableNode*>(expr.get()) ||
+            dynamic_cast<ArrayAccessNode*>(expr.get()) ||
+            dynamic_cast<MemberAccessNode*>(expr.get())) {
             return std::make_unique<BinaryOpNode>(std::move(expr), TokenType::Assign, std::move(right));
         }
         // 检查是否是解引用表达式 *p = value
@@ -57,7 +59,7 @@ std::unique_ptr<ExprNode> Parser::parseAssignment() {
                 return std::make_unique<BinaryOpNode>(std::move(expr), TokenType::Assign, std::move(right));
             }
         }
-        throw std::runtime_error("赋值运算符左边必须是变量、数组元素或解引用表达式");
+        throw std::runtime_error("赋值运算符左边必须是变量、数组元素、成员访问或解引用表达式");
     }
 
     return expr;
@@ -193,7 +195,7 @@ std::unique_ptr<ExprNode> Parser::parseUnary() {
 }
 
 std::unique_ptr<ExprNode> Parser::parsePrimary() {
-    // 解析基础表达式：数字、变量、函数调用、数组访问、括号表达式
+    // 解析基础表达式：数字、变量、函数调用、数组访问、成员访问、括号表达式
     if (match(TokenType::Number)) {
         int value = std::stoi(currentToken_.getValue());
         advance();
@@ -207,13 +209,25 @@ std::unique_ptr<ExprNode> Parser::parsePrimary() {
         if (match(TokenType::LParen)) {
             return parseFunctionCall(name);
         }
-        // 检查是否是数组访问（支持多维）
+        // 检查是否是数组访问或成员访问（支持多维和链式）
         std::unique_ptr<ExprNode> expr = std::make_unique<VariableNode>(name);
-        while (match(TokenType::LBracket)) {
-            advance(); // 消费[
-            auto index = parseExpression();
-            consume(TokenType::RBracket, "期望 ']' 在数组下标后");
-            expr = std::make_unique<ArrayAccessNode>(std::move(expr), std::move(index));
+        while (match(TokenType::LBracket) || match(TokenType::Dot)) {
+            if (match(TokenType::LBracket)) {
+                // 数组访问
+                advance(); // 消费[
+                auto index = parseExpression();
+                consume(TokenType::RBracket, "期望 ']' 在数组下标后");
+                expr = std::make_unique<ArrayAccessNode>(std::move(expr), std::move(index));
+            } else if (match(TokenType::Dot)) {
+                // 成员访问
+                advance(); // 消费.
+                if (!match(TokenType::Identifier)) {
+                    throw std::runtime_error("期望成员名，但得到: " + currentToken_.toString());
+                }
+                std::string member = currentToken_.getValue();
+                advance();
+                expr = std::make_unique<MemberAccessNode>(std::move(expr), member);
+            }
         }
         return expr;
     }
@@ -284,6 +298,11 @@ std::unique_ptr<StmtNode> Parser::parseStatement() {
         return parseVariableDeclaration();
     }
 
+    if (match(TokenType::Struct)) {
+        // 结构体变量声明：struct Point p;
+        return parseVariableDeclaration();
+    }
+
     if (match(TokenType::Return)) {
         // 返回语句：return; 或 return x;
         return parseReturnStatement();
@@ -342,8 +361,14 @@ std::unique_ptr<ProgramNode> Parser::parseProgram() {
 
     while (!isAtEnd()) {
         try {
-            auto func = parseFunctionDeclaration();
-            program->addFunction(std::move(func));
+            // 检查是否是结构体定义，但是这里有坑，现在不支持全局变量，所以只能是结构体定义，等以后再判断是否为变量声明。
+            if (match(TokenType::Struct)) {
+                auto struct_decl = parseStructDeclaration();
+                program->addStruct(std::move(struct_decl));
+            } else {
+                auto func = parseFunctionDeclaration();
+                program->addFunction(std::move(func));
+            }
         } catch (const std::exception& e) {
             throw std::runtime_error("在第" + std::to_string(currentToken_.getLine()) +
                                     "行: " + std::string(e.what()));
@@ -478,13 +503,25 @@ Parser::Precedence Parser::getOperatorPrecedence(TokenType op) {
 
 // 解析变量声明语句：int x; 或 int y = 5; 或 int arr[10]; 或 int *p; 或 int arr[3][4]; 或 int *arr[10];
 std::unique_ptr<VarDeclStmtNode> Parser::parseVariableDeclaration() {
-    advance(); // 消费int
+    // 处理结构体类型声明：struct Point p;
+    std::string varType;
+    if (match(TokenType::Struct)) {
+        advance(); // 消费 struct
+        if (!match(TokenType::Identifier)) {
+            throw std::runtime_error("期望结构体类型名");
+        }
+        varType = "struct " + currentToken_.getValue();
+        advance();
+    } else {
+        // 基本类型声明：int x;
+        advance(); // 消费int
 
-    // 构建类型字符串，处理指针类型 int*, int**, ...
-    std::string varType = "int";
-    while (match(TokenType::Multiply)) {
-        varType += "*";
-        advance(); // 消费*
+        // 构建类型字符串，处理指针类型 int*, int**, ...
+        varType = "int";
+        while (match(TokenType::Multiply)) {
+            varType += "*";
+            advance(); // 消费*
+        }
     }
 
     // 获取变量名
@@ -684,4 +721,88 @@ std::unique_ptr<ContinueStmtNode> Parser::parseContinueStatement() {
     consume(TokenType::Semicolon, "期望分号在continue语句后");
 
     return std::make_unique<ContinueStmtNode>();
+}
+
+// 解析结构体定义：struct Point { int x; int y; };
+std::unique_ptr<StructDeclNode> Parser::parseStructDeclaration() {
+    consume(TokenType::Struct, "期望 'struct' 关键字");
+
+    // 解析结构体名
+    if (!match(TokenType::Identifier)) {
+        throw std::runtime_error("期望结构体名，但得到: " + currentToken_.toString());
+    }
+    std::string struct_name = currentToken_.getValue();
+    advance();
+
+    consume(TokenType::LBrace, "期望 '{' 在结构体名后");
+
+    auto struct_decl = std::make_unique<StructDeclNode>(struct_name);
+
+    // 解析成员列表
+    while (!match(TokenType::RBrace) && !isAtEnd()) {
+        // 解析成员类型
+        if (!isTypeKeyword() && !match(TokenType::Struct)) {
+            throw std::runtime_error("期望成员类型，但得到: " + currentToken_.toString());
+        }
+
+        std::string member_type;
+        if (match(TokenType::Struct)) {
+            // 结构体类型成员：struct Point p;
+            advance(); // 消费 struct
+            if (!match(TokenType::Identifier)) {
+                throw std::runtime_error("期望结构体类型名");
+            }
+            member_type = "struct " + currentToken_.getValue();
+            advance();
+        } else {
+            // 基本类型成员
+            member_type = currentToken_.getValue();
+            advance();
+
+            // 处理指针类型成员
+            while (match(TokenType::Multiply)) {
+                member_type += "*";
+                advance();
+            }
+        }
+
+        // 解析成员名
+        if (!match(TokenType::Identifier)) {
+            throw std::runtime_error("期望成员名，但得到: " + currentToken_.toString());
+        }
+        std::string member_name = currentToken_.getValue();
+        advance();
+
+        // 检查是否是数组成员
+        std::vector<int> array_dims;
+        while (match(TokenType::LBracket)) {
+            advance(); // 消费 [
+
+            if (!match(TokenType::Number)) {
+                throw std::runtime_error("期望数组大小");
+            }
+            int size = std::stoi(currentToken_.getValue());
+            if (size <= 0) {
+                throw std::runtime_error("数组大小必须为正数");
+            }
+            array_dims.push_back(size);
+            advance();
+
+            consume(TokenType::RBracket, "期望 ']'");
+        }
+
+        // 添加成员
+        if (array_dims.empty()) {
+            struct_decl->addMember(member_type, member_name);
+        } else {
+            struct_decl->addMember(member_type, member_name, std::move(array_dims));
+        }
+
+        consume(TokenType::Semicolon, "期望分号在成员声明后");
+    }
+
+    consume(TokenType::RBrace, "期望 '}' 在结构体定义结束");
+    consume(TokenType::Semicolon, "期望分号在结构体定义后");
+
+    return struct_decl;
 }

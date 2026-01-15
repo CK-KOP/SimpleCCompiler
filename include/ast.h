@@ -141,6 +141,24 @@ public:
     }
 };
 
+// 成员访问节点：obj.member
+class MemberAccessNode : public ExprNode {
+private:
+    std::unique_ptr<ExprNode> object_;
+    std::string member_;
+
+public:
+    MemberAccessNode(std::unique_ptr<ExprNode> object, const std::string& member)
+        : object_(std::move(object)), member_(member) {}
+
+    ExprNode* getObject() const { return object_.get(); }
+    const std::string& getMember() const { return member_; }
+
+    std::string toString() const override {
+        return "MemberAccess(" + object_->toString() + "." + member_ + ")";
+    }
+};
+
 // 语句节点基类
 class StmtNode : public ASTNode {
 public:
@@ -448,22 +466,85 @@ public:
     }
 };
 
-// 程序节点：顶层，包含多个函数定义
+// 结构体成员
+struct StructMember {
+    std::string type;           // 成员类型（如 "int", "int*", "int"）
+    std::string name;           // 成员名
+    std::vector<int> array_dims; // 如果是数组成员，存储维度
+
+    StructMember(const std::string& t, const std::string& n)
+        : type(t), name(n) {}
+
+    StructMember(const std::string& t, const std::string& n, std::vector<int> dims)
+        : type(t), name(n), array_dims(std::move(dims)) {}
+
+    bool isArray() const { return !array_dims.empty(); }
+};
+
+// 结构体定义节点：struct Point { int x; int y; };
+class StructDeclNode : public ASTNode {
+private:
+    std::string name_;
+    std::vector<StructMember> members_;
+
+public:
+    explicit StructDeclNode(const std::string& name) : name_(name) {}
+
+    void addMember(const std::string& type, const std::string& name) {
+        members_.push_back(StructMember(type, name));
+    }
+
+    void addMember(const std::string& type, const std::string& name, std::vector<int> dims) {
+        members_.push_back(StructMember(type, name, std::move(dims)));
+    }
+
+    const std::string& getName() const { return name_; }
+    const std::vector<StructMember>& getMembers() const { return members_; }
+
+    std::string toString() const override {
+        std::string result = "StructDecl(" + name_ + ") {";
+        for (size_t i = 0; i < members_.size(); ++i) {
+            if (i > 0) result += ", ";
+            result += members_[i].type + " " + members_[i].name;
+            for (int dim : members_[i].array_dims) {
+                result += "[" + std::to_string(dim) + "]";
+            }
+        }
+        result += "}";
+        return result;
+    }
+};
+
+// 程序节点：顶层，包含多个函数定义和结构体定义
 class ProgramNode : public ASTNode {
 private:
     std::vector<std::unique_ptr<FunctionDeclNode>> functions_;
+    std::vector<std::unique_ptr<StructDeclNode>> structs_;
 
 public:
     void addFunction(std::unique_ptr<FunctionDeclNode> func) {
         functions_.push_back(std::move(func));
     }
 
+    void addStruct(std::unique_ptr<StructDeclNode> struct_decl) {
+        structs_.push_back(std::move(struct_decl));
+    }
+
     const std::vector<std::unique_ptr<FunctionDeclNode>>& getFunctions() const {
         return functions_;
     }
 
+    const std::vector<std::unique_ptr<StructDeclNode>>& getStructs() const {
+        return structs_;
+    }
+
     std::string toString() const override {
         std::string result = "Program(";
+        for (size_t i = 0; i < structs_.size(); ++i) {
+            if (i > 0) result += ", ";
+            result += structs_[i]->toString();
+        }
+        if (!structs_.empty() && !functions_.empty()) result += ", ";
         for (size_t i = 0; i < functions_.size(); ++i) {
             if (i > 0) result += ", ";
             result += functions_[i]->toString();

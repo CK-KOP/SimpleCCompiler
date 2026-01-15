@@ -21,6 +21,7 @@ class Sema {
 private:
     Scope scope_;
     std::vector<SemanticError> errors_;
+    std::unordered_map<std::string, std::shared_ptr<StructType>> struct_types_;
 
     // 当前正在分析的函数的返回类型
     std::shared_ptr<Type> current_function_return_type_;
@@ -40,6 +41,9 @@ public:
     bool hasErrors() const { return !errors_.empty(); }
 
 private:
+    // 分析结构体定义
+    void analyzeStructDecl(StructDeclNode* struct_decl);
+
     // 分析函数定义
     void analyzeFunction(FunctionDeclNode* func);
 
@@ -61,6 +65,7 @@ private:
     std::shared_ptr<Type> analyzeUnaryOp(UnaryOpNode* expr);
     std::shared_ptr<Type> analyzeFunctionCall(FunctionCallNode* expr);
     std::shared_ptr<Type> analyzeArrayAccess(ArrayAccessNode* expr);
+    std::shared_ptr<Type> analyzeMemberAccess(MemberAccessNode* expr);
 
     // 辅助方法
     std::shared_ptr<Type> stringToType(const std::string& type_name);

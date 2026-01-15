@@ -30,6 +30,7 @@ enum class TokenType {
     // 分隔符
     Semicolon,      // ;
     Comma,          // ,
+    Dot,            // .
 
     // 赋值和比较运算符
     Assign,         // =
@@ -57,6 +58,7 @@ enum class TokenType {
     Do,             // do
     Break,          // break
     Continue,       // continue
+    Struct,         // struct
 
     // 标识符
     Identifier,     // 变量名、函数名等

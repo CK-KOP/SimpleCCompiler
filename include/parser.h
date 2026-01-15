@@ -34,6 +34,7 @@ public:
 
     // 函数和程序解析
     std::unique_ptr<FunctionDeclNode> parseFunctionDeclaration();
+    std::unique_ptr<StructDeclNode> parseStructDeclaration();
     std::unique_ptr<ProgramNode> parseProgram();
 
     // 声明和特定语句解析功能

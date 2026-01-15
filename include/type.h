@@ -12,6 +12,7 @@ enum class TypeKind {
     Function,   // 函数类型
     Pointer,    // 指针类型 (预留)
     Array,      // 数组类型
+    Struct,     // 结构体类型
 };
 
 // 类型基类
@@ -30,6 +31,7 @@ public:
     bool isFunction() const { return kind_ == TypeKind::Function; }
     bool isPointer() const { return kind_ == TypeKind::Pointer; }
     bool isArray() const { return kind_ == TypeKind::Array; }
+    bool isStruct() const { return kind_ == TypeKind::Struct; }
 
     virtual std::string toString() const = 0;
 
@@ -124,6 +126,61 @@ public:
 
     std::string toString() const override {
         return element_type_->toString() + "[" + std::to_string(size_) + "]";
+    }
+};
+
+// 结构体类型
+class StructType : public Type {
+private:
+    std::string name_;
+    std::vector<std::pair<std::string, std::shared_ptr<Type>>> members_;
+    mutable int cached_slot_count_ = -1;
+
+public:
+    explicit StructType(const std::string& name)
+        : Type(TypeKind::Struct), name_(name) {}
+
+    void addMember(const std::string& name, std::shared_ptr<Type> type) {
+        members_.push_back({name, type});
+        cached_slot_count_ = -1;  // 失效缓存
+    }
+
+    // 获取结构体占用的总slot数
+    int getSlotCount() const override {
+        if (cached_slot_count_ >= 0) return cached_slot_count_;
+        int total = 0;
+        for (const auto& [name, type] : members_) {
+            total += type->getSlotCount();
+        }
+        cached_slot_count_ = total;
+        return total;
+    }
+
+    // 获取成员在结构体中的偏移量
+    int getMemberOffset(const std::string& member) const {
+        int offset = 0;
+        for (const auto& [name, type] : members_) {
+            if (name == member) return offset;
+            offset += type->getSlotCount();
+        }
+        throw std::runtime_error("Unknown member: " + member);
+    }
+
+    // 获取成员类型
+    std::shared_ptr<Type> getMemberType(const std::string& member) const {
+        for (const auto& [name, type] : members_) {
+            if (name == member) return type;
+        }
+        return nullptr;
+    }
+
+    const std::string& getName() const { return name_; }
+    const std::vector<std::pair<std::string, std::shared_ptr<Type>>>& getMembers() const {
+        return members_;
+    }
+
+    std::string toString() const override {
+        return "struct " + name_;
     }
 };
 
