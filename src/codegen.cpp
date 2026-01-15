@@ -390,8 +390,16 @@ void CodeGen::genUnaryOp(UnaryOpNode* expr) {
             int offset = getLocal(var->getName());
             code_.emit(OpCode::LEA, offset);  // 将变量地址压栈
             return;
+        } else if (auto* member = dynamic_cast<MemberAccessNode*>(expr->getOperand())) {
+            // 取结构体成员的地址：&obj.member
+            genMemberAccessAddr(member);
+            return;
+        } else if (auto* arr = dynamic_cast<ArrayAccessNode*>(expr->getOperand())) {
+            // 取数组元素的地址：&arr[i]
+            genArrayAccessAddr(arr);
+            return;
         }
-        throw std::runtime_error("Cannot take address of non-variable");
+        throw std::runtime_error("Cannot take address of non-lvalue");
     }
 
     // 解引用运算符 * (读取)
@@ -535,6 +543,14 @@ void CodeGen::genMemberAccessAddr(MemberAccessNode* expr) {
         // 数组元素的成员访问：arr[i].member
         genArrayAccessAddr(arr);
         code_.emit(OpCode::ADDPTR, member_offset);
+    } else if (auto* deref = dynamic_cast<UnaryOpNode*>(expr->getObject())) {
+        // 解引用的成员访问：(*ptr).member 或 ptr->member
+        if (deref->getOperator() == TokenType::Multiply) {
+            genExpression(deref->getOperand());  // 计算指针值（地址）
+            code_.emit(OpCode::ADDPTR, member_offset);
+        } else {
+            throw std::runtime_error("Unsupported unary operator in member access");
+        }
     } else {
         throw std::runtime_error("Unsupported member access pattern");
     }

@@ -161,6 +161,10 @@ void Sema::analyzeVarDecl(VarDeclStmtNode* stmt) {
         if (init_type->isVoid()) {
             error("void 类型的值不能用于初始化变量");
         }
+        // 检查初始化器类型是否与变量类型兼容
+        if (!isTypeCompatible(var_type, init_type)) {
+            error("初始化类型不兼容：不能将 " + init_type->toString() + " 类型赋值给 " + var_type->toString() + " 类型");
+        }
     }
 }
 
@@ -288,6 +292,10 @@ std::shared_ptr<Type> Sema::analyzeBinaryOp(BinaryOpNode* expr) {
         // 检查右边不能是 void
         if (right_type->isVoid()) {
             error("void 类型的值不能用于赋值");
+        }
+        // 检查类型兼容性
+        if (!isTypeCompatible(left_type, right_type)) {
+            error("赋值类型不兼容：不能将 " + right_type->toString() + " 类型赋值给 " + left_type->toString() + " 类型");
         }
     } else {
         // 其他二元运算：操作数不能是 void
@@ -467,4 +475,56 @@ std::shared_ptr<Type> Sema::analyzeMemberAccess(MemberAccessNode* expr) {
     }
 
     return member_type;
+}
+
+// 检查两个类型是否兼容（用于赋值）
+bool Sema::isTypeCompatible(const std::shared_ptr<Type>& left, const std::shared_ptr<Type>& right) {
+    // 如果类型完全相同
+    if (left == right) {
+        return true;
+    }
+
+    // int 类型兼容
+    if (left->isInt() && right->isInt()) {
+        return true;
+    }
+
+    // 指针类型检查
+    if (left->isPointer() && right->isPointer()) {
+        auto left_ptr = std::dynamic_pointer_cast<PointerType>(left);
+        auto right_ptr = std::dynamic_pointer_cast<PointerType>(right);
+
+        auto left_base = left_ptr->getBaseType();
+        auto right_base = right_ptr->getBaseType();
+
+        // 递归检查基类型
+        if (left_base->isStruct() && right_base->isStruct()) {
+            auto left_struct = std::dynamic_pointer_cast<StructType>(left_base);
+            auto right_struct = std::dynamic_pointer_cast<StructType>(right_base);
+            // 结构体指针必须指向相同的结构体类型
+            return left_struct->getName() == right_struct->getName();
+        }
+
+        // 其他指针类型递归检查
+        return isTypeCompatible(left_base, right_base);
+    }
+
+    // 数组类型检查
+    if (left->isArray() && right->isArray()) {
+        auto left_arr = std::dynamic_pointer_cast<ArrayType>(left);
+        auto right_arr = std::dynamic_pointer_cast<ArrayType>(right);
+        // 数组元素类型必须兼容
+        return isTypeCompatible(left_arr->getElementType(), right_arr->getElementType());
+    }
+
+    // 结构体类型检查
+    if (left->isStruct() && right->isStruct()) {
+        auto left_struct = std::dynamic_pointer_cast<StructType>(left);
+        auto right_struct = std::dynamic_pointer_cast<StructType>(right);
+        // 结构体必须是相同的类型
+        return left_struct->getName() == right_struct->getName();
+    }
+
+    // 其他情况不兼容
+    return false;
 }

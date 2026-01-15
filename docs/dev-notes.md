@@ -598,3 +598,493 @@ for (int i = params.size() - 1; i >= 0; --i) {
 2. 使用调试模式查看执行过程
 3. 对比预期和实际的栈状态
 4. 逐步增加程序复杂度
+
+---
+
+# 第五部分：结构体实现
+
+## 15. 结构体指针类型解析顺序问题
+
+### 问题描述
+在实现 Phase 2 时，`stringToType()` 函数无法正确解析 `struct Point*` 类型。
+
+### 错误现象
+```c
+struct Point *ptr = &p;  // 解析失败
+```
+
+### 原始代码
+```cpp
+std::shared_ptr<Type> Sema::stringToType(const std::string& type_name) {
+    if (type_name == "int") return Type::getIntType();
+    if (type_name == "void") return Type::getVoidType();
+
+    // 先检查结构体类型
+    if (type_name.size() > 7 && type_name.substr(0, 7) == "struct ") {
+        std::string struct_name = type_name.substr(7);
+        // 问题：struct_name 可能是 "Point*"，无法找到
+        auto it = struct_types_.find(struct_name);
+        if (it != struct_types_.end()) {
+            return it->second;
+        }
+    }
+
+    // 再检查指针类型
+    if (type_name.back() == '*') {
+        auto base_type = stringToType(type_name.substr(0, type_name.size() - 1));
+        return std::make_shared<PointerType>(base_type);
+    }
+
+    return nullptr;
+}
+```
+
+### 问题分析
+对于 `struct Point*`：
+1. 先匹配 `struct ` 前缀 ✓
+2. 提取结构体名 `Point*` ✗（包含了 `*`）
+3. 在 `struct_types_` 中查找 `Point*` 失败 ✗
+
+### 解决方案
+**必须先处理指针，再处理结构体**：
+
+```cpp
+std::shared_ptr<Type> Sema::stringToType(const std::string& type_name) {
+    if (type_name == "int") return Type::getIntType();
+    if (type_name == "void") return Type::getVoidType();
+
+    // 1. 先处理指针类型（递归剥离 *）
+    if (type_name.size() > 1 && type_name.back() == '*') {
+        auto base_type = stringToType(type_name.substr(0, type_name.size() - 1));
+        if (base_type) {
+            return std::make_shared<PointerType>(base_type);
+        }
+    }
+
+    // 2. 再处理结构体类型
+    if (type_name.size() > 7 && type_name.substr(0, 7) == "struct ") {
+        std::string struct_name = type_name.substr(7);
+        // 现在 struct_name 是纯净的 "Point"
+        auto it = struct_types_.find(struct_name);
+        if (it != struct_types_.end()) {
+            return it->second;
+        }
+    }
+
+    return nullptr;
+}
+```
+
+### 解析流程
+```
+"struct Point*"
+  → 检测到 '*'，递归调用 stringToType("struct Point")
+    → 匹配 "struct " 前缀
+    → 提取 "Point"
+    → 查找成功，返回 StructType(Point)
+  → 包装为 PointerType(StructType(Point))
+```
+
+### 教训
+- 类型解析的顺序很重要
+- 递归处理可以简化复杂类型的解析
+- 先处理外层修饰符（指针），再处理基础类型
+
+---
+
+## 16. 结构体成员指针类型解析失败
+
+### 问题描述
+在结构体定义中使用指针类型成员时，解析器无法正确处理 `*`。
+
+### 错误现象
+```c
+struct Complex {
+    struct Point *ptr;  // 解析失败：期望成员名，但得到 *
+};
+```
+
+### 原始代码
+```cpp
+std::unique_ptr<StructDeclNode> Parser::parseStructDeclaration() {
+    // ...
+    while (!match(TokenType::RightBrace)) {
+        std::string member_type;
+        if (match(TokenType::Struct)) {
+            advance();
+            member_type = "struct " + currentToken_.getValue();
+            advance();
+            // 问题：没有处理后面的 *
+        } else {
+            member_type = currentToken_.getValue();
+            advance();
+            // 只有基本类型才处理 *
+            while (match(TokenType::Multiply)) {
+                member_type += "*";
+                advance();
+            }
+        }
+        // 期望成员名，但遇到了 *
+    }
+}
+```
+
+### 解决方案
+在解析结构体类型后，也要处理指针：
+
+```cpp
+if (match(TokenType::Struct)) {
+    advance();
+    if (!match(TokenType::Identifier)) {
+        throw std::runtime_error("期望结构体类型名");
+    }
+    member_type = "struct " + currentToken_.getValue();
+    advance();
+
+    // 添加：处理结构体指针类型成员
+    while (match(TokenType::Multiply)) {
+        member_type += "*";
+        advance();
+    }
+}
+```
+
+### 教训
+- 代码重复是潜在bug的信号
+- 两个分支处理相似逻辑时，要确保一致性
+- 测试边界情况（结构体指针成员）
+
+---
+
+## 17. 箭头操作符的AST表示
+
+### 问题描述
+如何在AST中表示箭头操作符 `ptr->member`？
+
+### 设计选择
+
+**方案1：创建新的 ArrowAccessNode**
+```cpp
+class ArrowAccessNode : public ExprNode {
+    std::unique_ptr<ExprNode> pointer_;
+    std::string member_;
+};
+```
+- 优点：语义清晰
+- 缺点：需要在多处添加处理逻辑
+
+**方案2：在解析时转换为 `(*ptr).member`**
+```cpp
+// parser.cpp
+if (match(TokenType::Arrow)) {
+    advance();
+    std::string member = currentToken_.getValue();
+    advance();
+
+    // 转换：ptr->member => (*ptr).member
+    auto deref = std::make_unique<UnaryOpNode>(TokenType::Multiply, std::move(expr));
+    expr = std::make_unique<MemberAccessNode>(std::move(deref), member);
+}
+```
+- 优点：复用现有的解引用和成员访问逻辑
+- 缺点：AST不直接反映源代码
+
+### 选择
+采用**方案2**，因为：
+1. `ptr->member` 在语义上就等价于 `(*ptr).member`
+2. 减少代码重复
+3. 语义分析和代码生成无需特殊处理
+
+### 教训
+- 语法糖可以在解析阶段脱糖（desugaring）
+- 选择合适的AST表示可以简化后续阶段
+
+---
+
+## 18. 成员访问地址计算的递归处理
+
+### 问题描述
+如何生成 `ptr->member` 的代码？最初的实现只支持简单变量的成员访问。
+
+### 错误现象
+```c
+c.ptr->x = 10;  // 错误：Unsupported member access pattern
+```
+
+### 原始代码
+```cpp
+void CodeGen::genMemberAccessAddr(MemberAccessNode* expr) {
+    auto struct_type = std::dynamic_pointer_cast<StructType>(object_type);
+    int member_offset = struct_type->getMemberOffset(expr->getMember());
+
+    if (auto* var = dynamic_cast<VariableNode*>(expr->getObject())) {
+        // 简单情况：obj.member
+        int base_offset = getLocal(var->getName());
+        code_.emit(OpCode::LEA, base_offset + member_offset);
+    } else if (auto* inner_member = dynamic_cast<MemberAccessNode*>(expr->getObject())) {
+        // 链式成员访问：obj.inner.member
+        genMemberAccessAddr(inner_member);
+        code_.emit(OpCode::ADDPTR, member_offset);
+    } else {
+        throw std::runtime_error("Unsupported member access pattern");
+    }
+}
+```
+
+### 问题分析
+`ptr->member` 被转换为 `(*ptr).member`，对象是 `UnaryOpNode`（解引用），不在支持的模式中。
+
+### 解决方案
+添加对解引用表达式的支持：
+
+```cpp
+void CodeGen::genMemberAccessAddr(MemberAccessNode* expr) {
+    // ... 前面的代码 ...
+
+    } else if (auto* deref = dynamic_cast<UnaryOpNode*>(expr->getObject())) {
+        // 解引用的成员访问：(*ptr).member 或 ptr->member
+        if (deref->getOperator() == TokenType::Multiply) {
+            genExpression(deref->getOperand());  // 计算指针值（地址）
+            code_.emit(OpCode::ADDPTR, member_offset);
+        } else {
+            throw std::runtime_error("Unsupported unary operator in member access");
+        }
+    } else {
+        throw std::runtime_error("Unsupported member access pattern");
+    }
+}
+```
+
+### 代码生成流程
+```
+c.ptr->x
+  → (*c.ptr).x
+  → genMemberAccessAddr(MemberAccessNode)
+    → object = UnaryOpNode(*, MemberAccessNode(c, ptr))
+    → genExpression(MemberAccessNode(c, ptr))
+      → 计算 c.ptr 的地址
+      → LOADM（加载指针值）
+    → ADDPTR member_offset_of_x
+```
+
+### 教训
+- 递归处理可以支持任意复杂的表达式组合
+- 每种表达式类型都要考虑作为子表达式的情况
+- 使用 `dynamic_cast` 识别不同的表达式模式
+
+---
+
+## 19. 类型兼容性检查的实现
+
+### 问题描述
+用户建议添加类型检查，防止类型不匹配的赋值。
+
+### 需求
+```c
+struct Point *ptr = &rectangle;  // 应该报错
+int num = &p;                    // 应该报错
+int **ptr2 = ptr1;               // 应该报错
+```
+
+### 实现方案
+添加递归的类型兼容性检查函数：
+
+```cpp
+bool Sema::isTypeCompatible(const std::shared_ptr<Type>& left,
+                            const std::shared_ptr<Type>& right) {
+    // 1. 完全相同
+    if (left == right) return true;
+
+    // 2. int 类型兼容
+    if (left->isInt() && right->isInt()) return true;
+
+    // 3. 指针类型：递归检查基类型
+    if (left->isPointer() && right->isPointer()) {
+        auto left_ptr = std::dynamic_pointer_cast<PointerType>(left);
+        auto right_ptr = std::dynamic_pointer_cast<PointerType>(right);
+        auto left_base = left_ptr->getBaseType();
+        auto right_base = right_ptr->getBaseType();
+
+        // 结构体指针：必须指向相同的结构体
+        if (left_base->isStruct() && right_base->isStruct()) {
+            auto left_struct = std::dynamic_pointer_cast<StructType>(left_base);
+            auto right_struct = std::dynamic_pointer_cast<StructType>(right_base);
+            return left_struct->getName() == right_struct->getName();
+        }
+
+        // 其他指针类型：递归检查
+        return isTypeCompatible(left_base, right_base);
+    }
+
+    // 4. 结构体类型：必须是相同名称的结构体
+    if (left->isStruct() && right->isStruct()) {
+        auto left_struct = std::dynamic_pointer_cast<StructType>(left);
+        auto right_struct = std::dynamic_pointer_cast<StructType>(right);
+        return left_struct->getName() == right_struct->getName();
+    }
+
+    // 5. 其他情况不兼容
+    return false;
+}
+```
+
+### 应用位置
+1. **赋值表达式**：
+```cpp
+if (expr->getOperator() == TokenType::Assign) {
+    // ... 左值检查 ...
+    if (!isTypeCompatible(left_type, right_type)) {
+        error("赋值类型不兼容：不能将 " + right_type->toString() +
+              " 类型赋值给 " + left_type->toString() + " 类型");
+    }
+}
+```
+
+2. **变量初始化**：
+```cpp
+if (stmt->hasInitializer()) {
+    auto init_type = analyzeExpression(stmt->getInitializer());
+    if (!isTypeCompatible(var_type, init_type)) {
+        error("初始化类型不兼容：不能将 " + init_type->toString() +
+              " 类型赋值给 " + var_type->toString() + " 类型");
+    }
+}
+```
+
+### 测试结果
+```c
+// ✓ 正确检测
+struct Point *ptr = &rectangle;  // 错误：不能将 Rectangle* 赋给 Point*
+int num = &p;                    // 错误：不能将 Point* 赋给 int
+int **ptr2 = ptr1;               // 错误：不能将 int* 赋给 int**
+p = r;                           // 错误：不能将 Rectangle 赋给 Point
+```
+
+### 教训
+- 类型检查是编译器的重要功能
+- 递归检查可以处理复杂的嵌套类型
+- 用户反馈可以帮助发现遗漏的功能
+
+---
+
+## 20. 结构体整体赋值的限制
+
+### 问题描述
+测试时发现 `p2 = p1` 只复制了第一个成员。
+
+### 原因分析
+```cpp
+// 当前的赋值实现
+if (auto* var = dynamic_cast<VariableNode*>(expr->getLeft())) {
+    genExpression(expr->getRight());
+    int offset = getLocal(var->getName());
+    code_.emit(OpCode::STORE, offset);  // 只存储一个 slot
+    code_.emit(OpCode::LOAD, offset);
+    return;
+}
+```
+
+`STORE` 指令只处理单个slot，但结构体占用多个slot。
+
+### 解决方案（未实现）
+需要实现多slot复制：
+
+```cpp
+if (left_type->isStruct()) {
+    int slot_count = left_type->getSlotCount();
+    // 生成循环复制代码，或添加 MEMCPY 指令
+    for (int i = 0; i < slot_count; i++) {
+        // 复制每个 slot
+    }
+}
+```
+
+### 当前状态
+- ❌ 不支持结构体整体赋值
+- ✓ 可以通过逐成员赋值实现相同效果
+
+### 文档更新
+在 `struct-implementation.md` 中明确标注：
+```markdown
+#### 不支持的功能
+- ❌ 结构体整体赋值 `p2 = p1;`（需要实现多slot复制）
+```
+
+### 教训
+- 明确功能边界，在文档中说明限制
+- 不支持的功能应该在测试中避免
+- 可以作为未来的改进方向
+
+---
+
+## 21. 测试文件组织
+
+### 问题
+主目录下有大量测试文件，不便管理。
+
+### 解决方案
+创建专门的测试目录结构：
+
+```
+tests/
+  struct/
+    test_struct_basic.c           # 基础功能测试
+    test_struct_comprehensive.c   # 综合功能测试
+    test_struct_advanced.c        # 高级功能测试
+    test_type_errors.c            # 错误检测测试
+```
+
+### 测试文件设计原则
+1. **覆盖度优先**：每个测试覆盖多个相关功能
+2. **预期值明确**：注释中标注预期返回值
+3. **错误测试集中**：将所有错误用例放在一个文件中
+4. **避免不支持的功能**：不测试结构体整体赋值、自引用等
+
+### 测试结果验证
+```bash
+# 基础测试
+./build/simplec tests/struct/test_struct_basic.c
+# 预期返回值: 350 ✓
+
+# 综合测试
+./build/simplec tests/struct/test_struct_comprehensive.c
+# 预期返回值: 610 ✓
+
+# 高级测试
+./build/simplec tests/struct/test_struct_advanced.c
+# 预期返回值: 995 ✓
+
+# 错误检测
+./build/simplec tests/struct/test_type_errors.c -s
+# 预期: 发现 10 个语义错误 ✓
+```
+
+### 教训
+- 测试文件应该有清晰的组织结构
+- 每个测试应该有明确的目的和预期结果
+- 定期清理临时测试文件
+
+---
+
+## 总结：结构体实现的关键点
+
+### 成功经验
+1. **分阶段实现**：Phase 1 基础功能 → Phase 2 指针和数组
+2. **类型解析顺序**：先处理指针，再处理结构体
+3. **AST脱糖**：箭头操作符转换为解引用+成员访问
+4. **递归处理**：支持任意复杂的嵌套表达式
+5. **类型检查**：添加完整的类型兼容性验证
+
+### 遇到的挑战
+1. 类型字符串解析的顺序问题
+2. 结构体成员指针类型的解析
+3. 成员访问的多种模式支持
+4. 结构体整体赋值的限制
+
+### 改进方向
+1. 实现结构体整体赋值（多slot复制）
+2. 支持自引用结构体（链表等）
+3. 支持结构体作为函数参数和返回值
+4. 添加结构体初始化列表
+
+---

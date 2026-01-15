@@ -69,6 +69,7 @@ private:
 
     // 辅助方法
     std::shared_ptr<Type> stringToType(const std::string& type_name);
+    bool isTypeCompatible(const std::shared_ptr<Type>& left, const std::shared_ptr<Type>& right);
 };
 
 #endif // SEMA_H
