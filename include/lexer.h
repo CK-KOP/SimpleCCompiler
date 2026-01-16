@@ -27,6 +27,9 @@ public:
     // 预览下一个Token（不消耗）
     Token peekNextToken();
 
+    // 预览第 n 个 Token（不消耗，n 从 1 开始，n=1 等同于 peekNextToken）
+    Token peekNthToken(size_t n);
+
     // 检查是否到达输入结尾
     bool isAtEnd() const { return current_pos_ >= source_.length(); }
 

@@ -1,5 +1,127 @@
 # 开发计划
 
+## 关键技术挑战
+
+### 语法歧义问题：`struct` 关键字的多义性 ⚠️
+
+**问题描述**：
+
+当 Parser 在全局作用域遇到 `struct` 关键字时，存在多种可能的语法结构，需要向前看（lookahead）2-3 个 token 才能准确判断：
+
+```c
+// 情况1：结构体定义
+struct Point {
+    int x;
+    int y;
+};
+
+// 情况2：结构体类型的函数声明
+struct Point createPoint(int x, int y) {
+    // ...
+}
+
+// 情况3：结构体类型的全局变量声明
+struct Point global_point;
+
+// 情况4：结构体类型的全局数组声明
+struct Point global_points[10];
+```
+
+**判断规则**：
+
+| Token 序列 | 语法结构 | 影响阶段 |
+|-----------|---------|---------|
+| `struct` + `标识符` + `{` | 结构体定义 | 阶段一、二（已实现） |
+| `struct` + `标识符` + `标识符` + `(` | 函数定义 | 阶段三 |
+| `struct` + `标识符` + `标识符` + `;` | 全局变量 | 阶段六 |
+| `struct` + `标识符` + `标识符` + `[` | 全局数组 | 阶段六 |
+
+**当前状态**：
+- ✅ Lexer 已扩展 `peekNthToken(size_t n)` 函数，支持向前看多个 token
+- ✅ Parser 已实现语法歧义判断逻辑，能正确区分结构体定义和函数定义
+- ✅ 语法解析层面已完全解决（2026-01-16）
+
+**解决方案**：
+
+**方案1：扩展 Lexer 支持多 token peek**（推荐）
+```cpp
+// lexer.h
+class Lexer {
+public:
+    Token peekNextToken();           // 已有：向前看 1 个
+    Token peekToken(size_t offset);  // 新增：向前看 n 个
+};
+
+// parser.cpp
+bool Parser::isStructDefinition() const {
+    if (!match(TokenType::Struct)) return false;
+    Token next1 = lexer_.peekToken(1);  // struct 后的第一个 token
+    if (next1.getType() != TokenType::Identifier) return false;
+    Token next2 = lexer_.peekToken(2);  // struct 后的第二个 token
+    return next2.getType() == TokenType::LBrace;
+}
+```
+
+**方案2：Parser 缓存 token 队列**
+```cpp
+// parser.h
+class Parser {
+private:
+    std::deque<Token> token_buffer_;  // token 缓冲区
+    Token peek(size_t offset);        // 向前看 n 个 token
+};
+```
+
+**方案3：统一解析入口，延迟判断**（最简单，但不够优雅）
+```cpp
+std::unique_ptr<ProgramNode> Parser::parseProgram() {
+    while (!isAtEnd()) {
+        if (match(TokenType::Struct)) {
+            advance();  // 消费 struct
+            std::string name = expect(TokenType::Identifier).getValue();
+
+            if (match(TokenType::LBrace)) {
+                // 结构体定义：手动构造 AST
+                auto struct_decl = parseStructBody(name);
+                program->addStruct(std::move(struct_decl));
+            } else if (match(TokenType::Identifier)) {
+                // 函数或全局变量：手动构造 AST
+                std::string func_or_var_name = currentToken_.getValue();
+                advance();
+
+                if (match(TokenType::LParen)) {
+                    // 函数定义
+                    auto func = parseFunctionBody("struct " + name, func_or_var_name);
+                    program->addFunction(std::move(func));
+                } else if (match(TokenType::Semicolon) || match(TokenType::LBracket)) {
+                    // 全局变量或数组
+                    auto var = parseGlobalVariable("struct " + name, func_or_var_name);
+                    program->addGlobalVariable(std::move(var));
+                }
+            }
+        } else {
+            // int foo() 或 void foo()
+            auto func = parseFunctionDeclaration();
+            program->addFunction(std::move(func));
+        }
+    }
+}
+```
+
+**推荐方案**：方案3（统一解析入口）
+- ✅ 不需要修改 Lexer
+- ✅ 不需要回退机制
+- ✅ 实现简单，代码清晰
+- ⚠️ 需要重构 `parseFunctionDeclaration()` 和 `parseStructDeclaration()`
+
+**影响范围**：
+- 阶段三：结构体作为函数返回值（阻塞）
+- 阶段六：全局变量声明（阻塞）
+
+**优先级**：🔴 高（必须在实现阶段三之前解决）
+
+---
+
 ## 实现分阶段
 
 ### 阶段一：基础结构体（当前）
@@ -196,11 +318,11 @@ int **ptr2 = ptr1;               // ✗ 错误：指针层级不匹配
 
 ---
 
-### 阶段三：函数参数和返回值（计划中）
+### 阶段三：函数参数和返回值（进行中）
 
 **目标**：支持结构体在函数间传递。
 
-**状态**：⏳ 待实现
+**状态**：🔄 词法、语法、语义分析已完成（2026-01-16），代码生成和VM待实现
 
 #### 新增功能
 
@@ -238,17 +360,40 @@ int main() {
 
 #### 功能清单
 
-- ⏳ 结构体作为函数参数（值传递）
-- ⏳ 结构体作为返回值
-- ✅ 结构体指针作为参数（引用传递）- 已支持
+- ✅ 结构体作为函数参数（值传递）- 词法、语法、语义分析已完成
+- ✅ 结构体作为返回值 - 词法、语法、语义分析已完成
+- ✅ 结构体指针作为参数（引用传递）- 已完全支持
+
+#### 实现进度
+
+**已完成（2026-01-16）**：
+1. ✅ **词法分析**：Lexer 扩展 `peekNthToken(size_t n)` 支持多 token 向前看
+2. ✅ **语法分析**：
+   - Parser::parseProgram() 解决 struct 语法歧义
+   - Parser::parseFunctionDeclaration() 支持结构体返回类型和参数类型
+3. ✅ **语义分析**：
+   - Sema 支持结构体作为函数返回类型的类型检查
+   - Sema 支持结构体作为函数参数类型的类型检查
+   - return 语句增强类型检查，能正确检测返回值类型不匹配
+
+**待实现**：
+4. ⏳ **代码生成**：CodeGen 支持多 slot 参数传递和返回值
+5. ⏳ **虚拟机**：VM 支持多 slot 返回值处理
 
 #### 实现挑战
 
-**1. 调用约定修改**
+**1. 语法歧义问题** ✅ **已解决（2026-01-16）**
+
+通过扩展 Lexer 的 `peekNthToken(size_t n)` 函数，Parser 现在可以向前看 2-3 个 token 来准确判断语法结构：
+- `struct` + `标识符` + `{` → 结构体定义
+- `struct` + `标识符` + `标识符` + `(` → 函数定义（返回结构体）
+- 其他情况 → 全局变量声明（暂不支持，给出友好错误提示）
+
+**2. 调用约定修改**（待实现）
 - 当前调用约定：参数从左到右压栈，每个参数占 1 slot
 - 需要支持：结构体参数占多个 slot
 
-**2. 参数传递**
+**3. 参数传递**
 ```c
 // 当前：int add(int a, int b)
 // 栈布局：[a][b][ret_addr][old_fp]
@@ -257,14 +402,14 @@ int main() {
 // 栈布局：[p.x][p.y][ret_addr][old_fp]
 ```
 
-**3. 返回值处理**
+**4. 返回值处理**
 - 当前：返回值通过栈顶传递（1 slot）
 - 需要：多 slot 返回值
   - 方案1：在栈上连续压入多个 slot
   - 方案2：调用者预留空间，被调用者写入
 
-**4. 涉及的修改点**
-- `Parser`: 解析结构体类型的参数和返回值
+**5. 涉及的修改点**
+- `Parser`: 解析结构体类型的参数和返回值（需先解决语法歧义问题）
 - `Sema`: 类型检查，计算参数和返回值的 slot 数
 - `CodeGen`:
   - 函数调用时压入多 slot 参数
@@ -853,11 +998,42 @@ int main() {
 
 #### 实现挑战
 
-**1. 内存布局修改**
+**1. 语法歧义问题（关键挑战）⚠️**
+
+与阶段三相同，全局变量声明也面临 `struct` 关键字的语法歧义问题：
+
+```c
+// 情况1：结构体定义
+struct Point {
+    int x;
+    int y;
+};
+
+// 情况2：结构体类型的函数声明
+struct Point createPoint(int x, int y) {
+    // ...
+}
+
+// 情况3：结构体类型的全局变量声明
+struct Point global_point;
+
+// 情况4：结构体类型的全局数组声明
+struct Point global_points[10];
+```
+
+**判断规则**（需要向前看 2-3 个 token）：
+- `struct` + `标识符` + `{` → **结构体定义**
+- `struct` + `标识符` + `标识符` + `(` → **函数定义**
+- `struct` + `标识符` + `标识符` + `;` → **全局变量**
+- `struct` + `标识符` + `标识符` + `[` → **全局数组**
+
+**解决方案**：需要先解决阶段三中提到的语法歧义问题，才能实现全局变量。
+
+**2. 内存布局修改**
 - 当前：所有变量都是局部变量，存储在栈上
 - 需要：全局变量存储在独立的全局数据区
 
-**2. VM 架构调整**
+**3. VM 架构调整**
 ```cpp
 class VM {
 private:
@@ -867,7 +1043,7 @@ private:
 };
 ```
 
-**3. 新增指令**
+**4. 新增指令**
 ```cpp
 enum class OpCode : uint8_t {
     // ...
@@ -877,9 +1053,13 @@ enum class OpCode : uint8_t {
 };
 ```
 
-**4. 符号表修改**
+**5. 符号表修改**
 - 区分全局符号和局部符号
 - 全局符号使用绝对地址，局部符号使用相对 fp 的偏移
+
+**6. 依赖关系**
+- ⚠️ **前置条件**：必须先解决阶段三的语法歧义问题
+- 建议实现顺序：阶段三 → 阶段六（共享语法解析解决方案）
 
 #### 详细实现方案
 

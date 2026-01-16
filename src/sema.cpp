@@ -178,6 +178,12 @@ void Sema::analyzeReturnStatement(ReturnStmtNode* stmt) {
         auto expr_type = analyzeExpression(stmt->getExpression());
         if (current_function_return_type_->isVoid()) {
             error("void 函数不应返回值");
+        } else {
+            // 检查返回值类型是否与函数返回类型兼容
+            if (!isTypeCompatible(current_function_return_type_, expr_type)) {
+                error("返回值类型不匹配：期望 " + current_function_return_type_->toString() +
+                      "，实际 " + expr_type->toString());
+            }
         }
     } else {
         if (!current_function_return_type_->isVoid()) {

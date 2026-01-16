@@ -178,6 +178,40 @@ Token Lexer::peekNextToken() {
     return current_token_;
 }
 
+Token Lexer::peekNthToken(size_t n) {
+    if (n == 0) {
+        throw std::runtime_error("peekNthToken: n 必须从 1 开始");
+    }
+
+    // 保存当前状态
+    size_t saved_pos = current_pos_;
+    int saved_line = line_;
+    int saved_column = column_;
+    Token saved_current_token = current_token_;
+    bool saved_has_cached = has_cached_token_;
+
+    // 清除缓存，确保从当前位置开始读取
+    has_cached_token_ = false;
+
+    // 向前读取 n 个 token
+    Token result = Token(TokenType::End, "", line_, column_);
+    for (size_t i = 0; i < n; i++) {
+        result = getNextToken();
+        if (result.is(TokenType::End)) {
+            break;
+        }
+    }
+
+    // 恢复状态
+    current_pos_ = saved_pos;
+    line_ = saved_line;
+    column_ = saved_column;
+    current_token_ = saved_current_token;
+    has_cached_token_ = saved_has_cached;
+
+    return result;
+}
+
 char Lexer::getCurrentChar() const {
     if (isAtEnd()) {
         return '\0';

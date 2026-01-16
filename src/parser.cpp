@@ -372,11 +372,38 @@ std::unique_ptr<ProgramNode> Parser::parseProgram() {
 
     while (!isAtEnd()) {
         try {
-            // 检查是否是结构体定义，但是这里有坑，现在不支持全局变量，所以只能是结构体定义，等以后再判断是否为变量声明。
+            // 解决 struct 关键字的语法歧义问题
+            // 通过向前看 2-3 个 token 来判断具体的语法结构
             if (match(TokenType::Struct)) {
-                auto struct_decl = parseStructDeclaration();
-                program->addStruct(std::move(struct_decl));
+                // 向前看：struct 后面的 token
+                Token next1 = lexer_.peekNthToken(1);  // struct 后的第一个 token
+                Token next2 = lexer_.peekNthToken(2);  // struct 后的第二个 token
+
+                // 情况1: struct Point { ... } -> 结构体定义
+                if (next1.is(TokenType::Identifier) && next2.is(TokenType::LBrace)) {
+                    auto struct_decl = parseStructDeclaration();
+                    program->addStruct(std::move(struct_decl));
+                }
+                // 情况2: struct Point foo(...) { ... } -> 函数定义（返回结构体类型）
+                else if (next1.is(TokenType::Identifier) && next2.is(TokenType::Identifier)) {
+                    Token next3 = lexer_.peekNthToken(3);  // struct 后的第三个 token
+                    if (next3.is(TokenType::LParen)) {
+                        // 返回结构体类型的函数
+                        auto func = parseFunctionDeclaration();
+                        program->addFunction(std::move(func));
+                    } else {
+                        // 情况3: 其他情况都是全局变量声明（暂不支持）
+                        // 包括：struct Point p;
+                        //      struct Point *p;
+                        //      struct Point arr[10];
+                        throw std::runtime_error("暂不支持全局变量声明（将在阶段六实现）");
+                    }
+                } else {
+                    // 其他情况也是全局变量声明（暂不支持）
+                    throw std::runtime_error("暂不支持全局变量声明（将在阶段六实现）");
+                }
             } else {
+                // int/void 开头的函数定义
                 auto func = parseFunctionDeclaration();
                 program->addFunction(std::move(func));
             }
@@ -389,7 +416,7 @@ std::unique_ptr<ProgramNode> Parser::parseProgram() {
     return program;
 }
 
-// 解析函数定义：int foo(int a, int b) { ... }
+// 解析函数定义：int foo(int a, int b) { ... } 或 struct Point foo(...) { ... }
 std::unique_ptr<FunctionDeclNode> Parser::parseFunctionDeclaration() {
     // 解析返回类型
     std::string return_type;
@@ -398,6 +425,14 @@ std::unique_ptr<FunctionDeclNode> Parser::parseFunctionDeclaration() {
         advance();
     } else if (match(TokenType::Void)) {
         return_type = "void";
+        advance();
+    } else if (match(TokenType::Struct)) {
+        // 结构体返回类型：struct Point
+        advance(); // 消费 struct
+        if (!match(TokenType::Identifier)) {
+            throw std::runtime_error("期望结构体类型名");
+        }
+        return_type = "struct " + currentToken_.getValue();
         advance();
     } else {
         throw std::runtime_error("期望函数返回类型，但得到: " + currentToken_.toString());
@@ -416,11 +451,23 @@ std::unique_ptr<FunctionDeclNode> Parser::parseFunctionDeclaration() {
 
     if (!match(TokenType::RParen)) {
         // 解析第一个参数
-        if (!isTypeKeyword()) {
+        std::string param_type;
+
+        // 支持结构体类型参数：struct Point p
+        if (match(TokenType::Struct)) {
+            advance(); // 消费 struct
+            if (!match(TokenType::Identifier)) {
+                throw std::runtime_error("期望结构体类型名");
+            }
+            param_type = "struct " + currentToken_.getValue();
+            advance();
+        } else if (isTypeKeyword()) {
+            param_type = currentToken_.getValue();
+            advance();
+        } else {
             throw std::runtime_error("期望参数类型");
         }
-        std::string param_type = currentToken_.getValue();
-        advance();
+
         // 处理指针类型参数
         while (match(TokenType::Multiply)) {
             param_type += "*";
@@ -438,11 +485,21 @@ std::unique_ptr<FunctionDeclNode> Parser::parseFunctionDeclaration() {
         while (match(TokenType::Comma)) {
             advance(); // 消费,
 
-            if (!isTypeKeyword()) {
+            // 支持结构体类型参数
+            if (match(TokenType::Struct)) {
+                advance(); // 消费 struct
+                if (!match(TokenType::Identifier)) {
+                    throw std::runtime_error("期望结构体类型名");
+                }
+                param_type = "struct " + currentToken_.getValue();
+                advance();
+            } else if (isTypeKeyword()) {
+                param_type = currentToken_.getValue();
+                advance();
+            } else {
                 throw std::runtime_error("期望参数类型");
             }
-            param_type = currentToken_.getValue();
-            advance();
+
             // 处理指针类型参数
             while (match(TokenType::Multiply)) {
                 param_type += "*";
