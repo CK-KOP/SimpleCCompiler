@@ -46,7 +46,9 @@ enum class OpCode : uint8_t {
     // 其他
     PRINT,      // 打印栈顶（调试用）
     HALT,       // 停止
-    ADJSP       // 调整栈指针: sp -= operand
+    ADJSP,      // 调整栈指针: sp -= operand
+    MEMCPY      // 内存复制: size = operand; dst = pop(); src = pop();
+                // 复制 size 个 slot: stack[dst..dst+size-1] = stack[src..src+size-1]
 };
 
 // 单条指令

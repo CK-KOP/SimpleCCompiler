@@ -355,6 +355,34 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
         if (!var) {
             throw std::runtime_error("Invalid assignment target");
         }
+
+        // 检查是否是结构体赋值
+        auto left_type = expr->getLeft()->getResolvedType();
+        if (left_type->isStruct()) {
+            // 结构体整体赋值：使用 MEMCPY
+            int slot_count = left_type->getSlotCount();
+
+            // 计算源地址（右边）
+            auto* right_var = dynamic_cast<VariableNode*>(expr->getRight());
+            if (!right_var) {
+                throw std::runtime_error("结构体赋值的右边必须是变量");
+            }
+            int src_offset = getLocal(right_var->getName());
+            code_.emit(OpCode::LEA, src_offset);  // 源地址
+
+            // 计算目标地址（左边）
+            int dst_offset = getLocal(var->getName());
+            code_.emit(OpCode::LEA, dst_offset);  // 目标地址
+
+            // 执行内存复制
+            code_.emit(OpCode::MEMCPY, slot_count);
+
+            // 赋值表达式返回值：加载第一个 slot（简化处理）
+            code_.emit(OpCode::LOAD, dst_offset);
+            return;
+        }
+
+        // 普通变量赋值（int、指针等）
         genExpression(expr->getRight());
         int offset = getLocal(var->getName());
         code_.emit(OpCode::STORE, offset);

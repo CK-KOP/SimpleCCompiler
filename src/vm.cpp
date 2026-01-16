@@ -36,8 +36,9 @@ std::string opcodeName(OpCode op) {
         case OpCode::RET:    return "RET";
         case OpCode::PRINT:  return "PRINT";
         case OpCode::HALT:   return "HALT";
-        case OpCode::ADJSP:    return "ADJSP";
-        default:               return "???";
+        case OpCode::ADJSP:  return "ADJSP";
+        case OpCode::MEMCPY: return "MEMCPY";
+        default:             return "???";
     }
 }
 
@@ -50,7 +51,8 @@ std::string ByteCode::toString() const {
             code[i].op == OpCode::JZ || code[i].op == OpCode::JNZ ||
             code[i].op == OpCode::CALL || code[i].op == OpCode::LEA ||
             code[i].op == OpCode::ADDPTR || code[i].op == OpCode::ADDPTRD ||
-            code[i].op == OpCode::ADJSP || code[i].op == OpCode::RET) {
+            code[i].op == OpCode::ADJSP || code[i].op == OpCode::RET ||
+            code[i].op == OpCode::MEMCPY) {
             ss << " " << code[i].operand;
         }
         ss << "\n";
@@ -290,6 +292,26 @@ int VM::execute(const ByteCode& bytecode) {
             case OpCode::ADJSP: {
                 // 调整栈指针: sp -= operand
                 sp_ -= instr.operand;
+                break;
+            }
+
+            case OpCode::MEMCPY: {
+                // 内存复制: size = operand; dst = pop(); src = pop();
+                // 复制 size 个 slot: stack[dst..dst+size-1] = stack[src..src+size-1]
+                int32_t dst = pop();
+                int32_t src = pop();
+                int32_t size = instr.operand;
+
+                // 边界检查
+                if (src < 0 || src + size > STACK_SIZE ||
+                    dst < 0 || dst + size > STACK_SIZE) {
+                    throw std::runtime_error("MEMCPY: 内存访问越界");
+                }
+
+                // 复制内存
+                for (int32_t i = 0; i < size; i++) {
+                    stack_[dst + i] = stack_[src + i];
+                }
                 break;
             }
         }
