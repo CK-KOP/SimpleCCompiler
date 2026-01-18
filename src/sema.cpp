@@ -47,14 +47,19 @@ void Sema::analyzeFunction(FunctionDeclNode* func) {
         return;
     }
 
+    // 设置函数返回类型到AST
+    func->setResolvedReturnType(return_type);
+
     // 构建函数类型
     std::vector<FunctionType::Param> params;
-    for (const auto& param : func->getParams()) {
+    for (auto& param : func->getParams()) {
         auto param_type = stringToType(param.type);
         if (!param_type) {
             error("未知的参数类型: " + param.type);
             return;
         }
+        // 设置参数类型到AST
+        param.setResolvedType(param_type);
         params.emplace_back(param_type, param.name);
     }
     auto func_type = std::make_shared<FunctionType>(return_type, params);

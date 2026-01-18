@@ -433,8 +433,12 @@ public:
 struct FunctionParam {
     std::string type;
     std::string name;
+    std::shared_ptr<Type> resolved_type;
 
     FunctionParam(const std::string& t, const std::string& n) : type(t), name(n) {}
+
+    void setResolvedType(std::shared_ptr<Type> t) { resolved_type = t; }
+    std::shared_ptr<Type> getResolvedType() const { return resolved_type; }
 };
 
 // 函数定义节点：int foo(int a, int b) { ... }
@@ -444,6 +448,7 @@ private:
     std::string name_;
     std::vector<FunctionParam> params_;
     std::unique_ptr<CompoundStmtNode> body_;
+    std::shared_ptr<Type> resolved_return_type_;
 
 public:
     FunctionDeclNode(const std::string& return_type, const std::string& name,
@@ -453,7 +458,11 @@ public:
     const std::string& getReturnType() const { return return_type_; }
     const std::string& getName() const { return name_; }
     const std::vector<FunctionParam>& getParams() const { return params_; }
+    std::vector<FunctionParam>& getParams() { return params_; }
     CompoundStmtNode* getBody() const { return body_.get(); }
+
+    void setResolvedReturnType(std::shared_ptr<Type> type) { resolved_return_type_ = type; }
+    std::shared_ptr<Type> getResolvedReturnType() const { return resolved_return_type_; }
 
     std::string toString() const override {
         std::string result = "FunctionDecl(" + return_type_ + " " + name_ + "(";
