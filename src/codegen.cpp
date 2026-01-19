@@ -133,11 +133,22 @@ void CodeGen::genVarDecl(VarDeclStmtNode* stmt) {
         (void)offset;
     } else if (type->isStruct()) {
         // 结构体变量：分配多个slot
-        int offset = allocStruct(stmt->getName(), slot_count);
-        for (int i = 0; i < slot_count; i++) {
-            code_.emit(OpCode::PUSH, 0);  // 初始化为0
+        if (stmt->hasInitializer()) {
+            // 有初始化器（通常是函数调用返回结构体）
+            // 先执行初始化器，将结构体压栈
+            genExpression(stmt->getInitializer());
+            // 初始化器会将结构体的所有 slot 压栈（ret_slot）
+            // 然后分配变量，这些 slot 就是变量的存储空间
+            int offset = allocStruct(stmt->getName(), slot_count);
+            (void)offset;
+        } else {
+            // 无初始化器，先分配空间，再初始化为0
+            int offset = allocStruct(stmt->getName(), slot_count);
+            for (int i = 0; i < slot_count; i++) {
+                code_.emit(OpCode::PUSH, 0);
+            }
+            (void)offset;
         }
-        (void)offset;
     } else {
         int offset = allocLocal(stmt->getName());
         if (stmt->hasInitializer()) {
@@ -288,12 +299,34 @@ void CodeGen::genDoWhileStmt(DoWhileStmtNode* stmt) {
 
 void CodeGen::genReturnStmt(ReturnStmtNode* stmt) {
     if (stmt->hasExpression()) {
-        genExpression(stmt->getExpression());
+        auto expr = stmt->getExpression();
+        auto expr_type = expr->getResolvedType();
+
+        if (expr_type && expr_type->isStruct()) {
+            // 结构体返回值：需要将结构体复制到 ret_slot
+            int slot_count = expr_type->getSlotCount();
+
+            // 计算 ret_slot 的位置：fp - 3 - param_slots - (slot_count - 1)
+            // ret_slot 占据多个 slot，从 fp - 3 - param_slots - (slot_count - 1) 开始
+            int ret_slot_base = -3 - current_param_slots_ - (slot_count - 1);
+
+            // 执行表达式，将结构体的所有 slot 压栈
+            genExpression(expr);
+
+            // 现在栈顶有 slot_count 个值，需要将它们存储到 ret_slot
+            // 从栈顶弹出并存储到 ret_slot（从高地址到低地址）
+            for (int i = slot_count - 1; i >= 0; --i) {
+                code_.emit(OpCode::STORE, ret_slot_base + i);
+            }
+        } else {
+            // 普通返回值（int、指针等）
+            genExpression(expr);
+        }
     } else {
         code_.emit(OpCode::PUSH, 0);  // void 函数默认返回 0
     }
+
     // ret_slot_offset = -3 - param_slots
-    // TODO: 支持 struct 返回值时，需调整偏移计算
     code_.emit(OpCode::RET, -3 - current_param_slots_);
 }
 
@@ -307,7 +340,17 @@ void CodeGen::genExpression(ExprNode* expr) {
         code_.emit(OpCode::PUSH, num->getValue());
     } else if (auto* var = dynamic_cast<VariableNode*>(expr)) {
         int offset = getLocal(var->getName());
-        code_.emit(OpCode::LOAD, offset);
+        auto var_type = var->getResolvedType();
+        if (var_type && var_type->isStruct()) {
+            // 结构体变量：需要加载所有 slot
+            int slot_count = var_type->getSlotCount();
+            for (int i = 0; i < slot_count; ++i) {
+                code_.emit(OpCode::LOAD, offset + i);
+            }
+        } else {
+            // 普通变量：加载 1 个 slot
+            code_.emit(OpCode::LOAD, offset);
+        }
     } else if (auto* binary = dynamic_cast<BinaryOpNode*>(expr)) {
         genBinaryOp(binary);
     } else if (auto* unary = dynamic_cast<UnaryOpNode*>(expr)) {
@@ -339,14 +382,64 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
 
         // 检查是否是成员访问赋值 obj.member = value
         if (auto* member = dynamic_cast<MemberAccessNode*>(expr->getLeft())) {
-            genExpression(expr->getRight());  // 计算值
-            genMemberAccessAddr(member);      // 计算成员地址
-            code_.emit(OpCode::STOREM);       // 存储
+            auto member_type = member->getResolvedType();
 
-            // 赋值表达式返回值，重新加载
-            genMemberAccessAddr(member);
-            code_.emit(OpCode::LOADM);
-            return;
+            if (member_type && member_type->isStruct()) {
+                // 结构体成员赋值：需要复制多个 slot
+                int slot_count = member_type->getSlotCount();
+
+                // 计算右值（可能是函数调用返回结构体）
+                genExpression(expr->getRight());
+                // 现在栈顶有 slot_count 个值：[val_0, val_1, ..., val_n-1]
+
+                // 计算目标成员的地址
+                genMemberAccessAddr(member);
+                // 栈顶现在是：[val_0, val_1, ..., val_n-1, addr]
+
+                // 我们需要将 addr 移到最底下，然后逐个 STOREM
+                // 但是这很复杂，让我们用另一种方法：
+                // 从栈顶弹出 addr，然后逐个弹出值并存储
+
+                // 方案：使用 MEMCPY 的逆向操作
+                // 栈布局：[val_0, val_1, ..., val_n-1, addr]
+                // 我们需要：逐个存储 val_i 到 addr+i
+
+                // 先将所有值和地址重新排列
+                // 实际上，我们可以直接从高地址到低地址存储
+
+                // 弹出地址，保存到栈底
+                // 然后从栈顶弹出值，通过地址存储
+
+                // 简化方案：直接计算每个成员的地址并存储
+                for (int i = slot_count - 1; i >= 0; --i) {
+                    // 栈顶是 addr（如果 i == slot_count-1）或者是 val_i+1
+                    if (i == slot_count - 1) {
+                        // 第一次：栈顶是 addr
+                        code_.emit(OpCode::ADDPTR, i);  // addr + i
+                        code_.emit(OpCode::STOREM);     // 存储 val_i
+                    } else {
+                        // 后续：需要重新计算地址
+                        genMemberAccessAddr(member);
+                        code_.emit(OpCode::ADDPTR, i);
+                        code_.emit(OpCode::STOREM);
+                    }
+                }
+
+                // 赋值表达式返回值：加载第一个 slot
+                genMemberAccessAddr(member);
+                code_.emit(OpCode::LOADM);
+                return;
+            } else {
+                // 普通成员赋值（int、指针等）
+                genExpression(expr->getRight());  // 计算值
+                genMemberAccessAddr(member);      // 计算成员地址
+                code_.emit(OpCode::STOREM);       // 存储
+
+                // 赋值表达式返回值，重新加载
+                genMemberAccessAddr(member);
+                code_.emit(OpCode::LOADM);
+                return;
+            }
         }
 
         // 检查是否是解引用赋值 *p = value
@@ -381,10 +474,31 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
                 int src_offset = getLocal(right_var->getName());
                 code_.emit(OpCode::LEA, src_offset);  // 源地址
             } else if (auto* right_call = dynamic_cast<FunctionCallNode*>(expr->getRight())) {
-                // 右边是函数调用：函数返回值已经在栈上（ret_slot位置）
-                // 需要获取返回值的地址
-                // TODO: 这里需要特殊处理，暂时抛出异常
-                throw std::runtime_error("结构体赋值暂不支持函数调用作为右值（需要实现返回值地址获取）");
+                // 右边是函数调用：函数返回值会在栈上（ret_slot位置）
+                // 先调用函数，ret_slot（多个slot）会被压栈
+                genFunctionCall(right_call);
+                // 现在栈顶有 slot_count 个值（ret_slot）
+                // 我们需要将它们复制到目标变量
+                // 计算目标地址
+                int dst_offset = getLocal(var->getName());
+                code_.emit(OpCode::LEA, dst_offset);  // 目标地址压栈
+
+                // 现在栈布局：[ret_slot_0, ret_slot_1, ..., dst_addr]
+                // 我们需要：[dst_addr, src_addr]，然后 MEMCPY
+                // 但是 ret_slot 已经在栈上了，我们需要获取它的地址
+
+                // 方案：逐个 STORE 到目标位置
+                // 先弹出目标地址
+                code_.emit(OpCode::POP);  // 弹出 dst_addr（暂时不用）
+
+                // 从栈顶弹出 slot_count 个值，存储到目标变量
+                for (int i = slot_count - 1; i >= 0; --i) {
+                    code_.emit(OpCode::STORE, dst_offset + i);
+                }
+
+                // 赋值表达式返回值：加载第一个 slot
+                code_.emit(OpCode::LOAD, dst_offset);
+                return;
             } else {
                 throw std::runtime_error("结构体赋值的右边必须是变量或函数调用");
             }
@@ -470,14 +584,17 @@ void CodeGen::genUnaryOp(UnaryOpNode* expr) {
 void CodeGen::genFunctionCall(FunctionCallNode* expr) {
     // 新 ABI: caller 预留 return slot，调用后清理参数
     // 栈布局 (调用前):
-    //   [ret_slot]   <- caller 预留，用于接收返回值
+    //   [ret_slot]   <- caller 预留，用于接收返回值（可能多个slot）
     //   [param_n]
     //   ...
     //   [param_1]
-    // TODO: 支持 struct 返回值时，ret_slot 可能占多个 slot
 
-    // 1. 预留 return slot (当前固定 1 slot)
-    code_.emit(OpCode::PUSH, 0);
+    // 1. 预留 return slot（根据返回类型的 slot 数）
+    auto return_type = expr->getResolvedType();
+    int ret_slot_count = return_type ? return_type->getSlotCount() : 1;
+    for (int i = 0; i < ret_slot_count; ++i) {
+        code_.emit(OpCode::PUSH, 0);
+    }
 
     // 2. 压入参数（从右到左）
     // 对于结构体参数，需要压入多个 slot
@@ -531,6 +648,10 @@ void CodeGen::genFunctionCall(FunctionCallNode* expr) {
     if (total_param_slots > 0) {
         code_.emit(OpCode::ADJSP, total_param_slots);
     }
+
+    // 5. 函数调用结束后，ret_slot（可能多个slot）留在栈顶
+    // 对于 int 返回值：栈顶是 1 个 slot
+    // 对于 struct 返回值：栈顶是多个 slot，就像一个"临时结构体变量"
 }
 
 int CodeGen::allocLocal(const std::string& name) {
