@@ -385,9 +385,17 @@ std::shared_ptr<Type> Sema::analyzeFunctionCall(FunctionCallNode* expr) {
               std::to_string(expr->getArgs().size()) + " 个");
     }
 
-    // 分析每个参数
-    for (const auto& arg : expr->getArgs()) {
-        analyzeExpression(arg.get());
+    // 分析每个参数并检查类型兼容性
+    for (size_t i = 0; i < expr->getArgs().size() && i < func_type->getParams().size(); ++i) {
+        auto arg_type = analyzeExpression(expr->getArgs()[i].get());
+        auto param_type = func_type->getParams()[i].type;
+
+        // 检查参数类型是否兼容
+        if (!isTypeCompatible(param_type, arg_type)) {
+            error("函数 '" + expr->getName() + "' 第 " + std::to_string(i + 1) +
+                  " 个参数类型不匹配：期望 " + param_type->toString() +
+                  "，实际 " + arg_type->toString());
+        }
     }
 
     return func_type->getReturnType();

@@ -363,12 +363,19 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
             int slot_count = left_type->getSlotCount();
 
             // 计算源地址（右边）
-            auto* right_var = dynamic_cast<VariableNode*>(expr->getRight());
-            if (!right_var) {
-                throw std::runtime_error("结构体赋值的右边必须是变量");
+            // 右边可以是变量或函数调用
+            if (auto* right_var = dynamic_cast<VariableNode*>(expr->getRight())) {
+                // 右边是变量：直接获取地址
+                int src_offset = getLocal(right_var->getName());
+                code_.emit(OpCode::LEA, src_offset);  // 源地址
+            } else if (auto* right_call = dynamic_cast<FunctionCallNode*>(expr->getRight())) {
+                // 右边是函数调用：函数返回值已经在栈上（ret_slot位置）
+                // 需要获取返回值的地址
+                // TODO: 这里需要特殊处理，暂时抛出异常
+                throw std::runtime_error("结构体赋值暂不支持函数调用作为右值（需要实现返回值地址获取）");
+            } else {
+                throw std::runtime_error("结构体赋值的右边必须是变量或函数调用");
             }
-            int src_offset = getLocal(right_var->getName());
-            code_.emit(OpCode::LEA, src_offset);  // 源地址
 
             // 计算目标地址（左边）
             int dst_offset = getLocal(var->getName());
