@@ -26,9 +26,15 @@ void CodeGen::genFunction(FunctionDeclNode* func) {
     local_offset_ = 0;
 
     // 记录参数 slot 数 (用于计算 ret_slot_offset)
-    // TODO: 支持 struct 参数时，需计算总 slot 数
     const auto& params = func->getParams();
-    current_param_slots_ = params.size();
+    current_param_slots_ = 0;
+    for (const auto& param : params) {
+        auto param_type = param.getResolvedType();
+        if (!param_type) {
+            throw std::runtime_error("Parameter type not resolved: " + param.name);
+        }
+        current_param_slots_ += param_type->getSlotCount();
+    }
 
     // 为参数分配空间（参数在调用前已压栈，位于负偏移）
     // 栈帧布局:
@@ -39,8 +45,14 @@ void CodeGen::genFunction(FunctionDeclNode* func) {
     //   [ret_addr]   fp - 2
     //   [old_fp]     fp - 1
     //   fp ->
+    int param_offset = -3;  // 第一个参数从 fp-3 开始
     for (size_t i = 0; i < params.size(); ++i) {
-        locals_[params[i].name] = -(int)i - 3;
+        auto param_type = params[i].getResolvedType();
+        int slot_count = param_type ? param_type->getSlotCount() : 1;
+
+        // 对于多slot的参数（如结构体），locals应该指向最低地址（最后一个slot）
+        locals_[params[i].name] = param_offset - slot_count + 1;
+        param_offset -= slot_count;
     }
 
     // 生成函数体
@@ -468,9 +480,44 @@ void CodeGen::genFunctionCall(FunctionCallNode* expr) {
     code_.emit(OpCode::PUSH, 0);
 
     // 2. 压入参数（从右到左）
-    // TODO: 支持 struct 参数时，每个参数可能占多个 slot
+    // 对于结构体参数，需要压入多个 slot
+    int total_param_slots = 0;
     for (int i = expr->getArgs().size() - 1; i >= 0; --i) {
-        genExpression(expr->getArgs()[i].get());
+        auto arg = expr->getArgs()[i].get();
+        auto arg_type = arg->getResolvedType();
+
+        if (arg_type && arg_type->isStruct()) {
+            // 结构体参数：需要压入多个 slot
+            int slot_count = arg_type->getSlotCount();
+            total_param_slots += slot_count;
+
+            // 获取结构体变量的地址，然后逐个 slot 压栈
+            if (auto* var = dynamic_cast<VariableNode*>(arg)) {
+                int offset = getLocal(var->getName());
+                // 从低地址到高地址压入（保持内存布局）
+                for (int j = 0; j < slot_count; ++j) {
+                    code_.emit(OpCode::LOAD, offset + j);
+                }
+            } else if (auto* member = dynamic_cast<MemberAccessNode*>(arg)) {
+                // 结构体成员访问：先获取地址，然后逐个加载
+                genMemberAccessAddr(member);
+                // 地址在栈顶，需要逐个加载 slot
+                for (int j = 0; j < slot_count; ++j) {
+                    if (j > 0) {
+                        // 重新计算地址（因为 LOADM 会消耗栈顶）
+                        genMemberAccessAddr(member);
+                        code_.emit(OpCode::ADDPTR, j);
+                    }
+                    code_.emit(OpCode::LOADM);
+                }
+            } else {
+                throw std::runtime_error("Unsupported struct argument type");
+            }
+        } else {
+            // 普通参数（int、指针等）：压入 1 个 slot
+            genExpression(arg);
+            total_param_slots += 1;
+        }
     }
 
     // 3. 查找函数地址并调用
@@ -481,9 +528,8 @@ void CodeGen::genFunctionCall(FunctionCallNode* expr) {
     code_.emit(OpCode::CALL, it->second);
 
     // 4. caller 清理参数，return slot 留在栈顶
-    // TODO: 支持 struct 参数时，需计算参数总 slot 数
-    if (!expr->getArgs().empty()) {
-        code_.emit(OpCode::ADJSP, expr->getArgs().size());
+    if (total_param_slots > 0) {
+        code_.emit(OpCode::ADJSP, total_param_slots);
     }
 }
 
