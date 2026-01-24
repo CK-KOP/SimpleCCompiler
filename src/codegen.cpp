@@ -1,6 +1,52 @@
 #include "../include/codegen.h"
 #include <stdexcept>
 
+// ========== 类型判断辅助函数实现 ==========
+
+bool CodeGen::isStructType(ExprNode* node) const {
+    if (!node) return false;
+    auto type = node->getResolvedType();
+    return type && type->isStruct();
+}
+
+bool CodeGen::isArrayType(ExprNode* node) const {
+    if (!node) return false;
+    auto type = node->getResolvedType();
+    return type && type->isArray();
+}
+
+bool CodeGen::isPointerType(ExprNode* node) const {
+    if (!node) return false;
+    auto type = node->getResolvedType();
+    return type && type->isPointer();
+}
+
+bool CodeGen::isIntType(ExprNode* node) const {
+    if (!node) return false;
+    auto type = node->getResolvedType();
+    return type && type->isInt();
+}
+
+int CodeGen::getSlotCount(ExprNode* node) const {
+    if (!node) return 1;
+    auto type = node->getResolvedType();
+    return type ? type->getSlotCount() : 1;
+}
+
+int CodeGen::getSlotCount(std::shared_ptr<Type> type) const {
+    return type ? type->getSlotCount() : 1;
+}
+
+bool CodeGen::hasValidType(ExprNode* node) const {
+    return node && node->getResolvedType() != nullptr;
+}
+
+std::shared_ptr<Type> CodeGen::getType(ExprNode* node) const {
+    return node ? node->getResolvedType() : nullptr;
+}
+
+// ==========================================
+
 ByteCode CodeGen::generate(ProgramNode* program) {
     // 生成所有函数的代码
     for (const auto& func : program->getFunctions()) {
@@ -300,11 +346,11 @@ void CodeGen::genDoWhileStmt(DoWhileStmtNode* stmt) {
 void CodeGen::genReturnStmt(ReturnStmtNode* stmt) {
     if (stmt->hasExpression()) {
         auto expr = stmt->getExpression();
-        auto expr_type = expr->getResolvedType();
 
-        if (expr_type && expr_type->isStruct()) {
+        // ========== 使用类型判断辅助函数 ==========
+        if (isStructType(expr)) {
             // 结构体返回值：需要将结构体复制到 ret_slot
-            int slot_count = expr_type->getSlotCount();
+            int slot_count = getSlotCount(expr);
 
             // 计算 ret_slot 的位置：fp - 3 - param_slots - (slot_count - 1)
             // ret_slot 占据多个 slot，从 fp - 3 - param_slots - (slot_count - 1) 开始
@@ -340,10 +386,10 @@ void CodeGen::genExpression(ExprNode* expr) {
         code_.emit(OpCode::PUSH, num->getValue());
     } else if (auto* var = dynamic_cast<VariableNode*>(expr)) {
         int offset = getLocal(var->getName());
-        auto var_type = var->getResolvedType();
-        if (var_type && var_type->isStruct()) {
+        // ========== 使用类型判断辅助函数 ==========
+        if (isStructType(var)) {
             // 结构体变量：需要加载所有 slot
-            int slot_count = var_type->getSlotCount();
+            int slot_count = getSlotCount(var);
             for (int i = 0; i < slot_count; ++i) {
                 code_.emit(OpCode::LOAD, offset + i);
             }
@@ -382,11 +428,10 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
 
         // 检查是否是成员访问赋值 obj.member = value
         if (auto* member = dynamic_cast<MemberAccessNode*>(expr->getLeft())) {
-            auto member_type = member->getResolvedType();
-
-            if (member_type && member_type->isStruct()) {
+            // ========== 使用类型判断辅助函数 ==========
+            if (isStructType(member)) {
                 // 结构体成员赋值：需要复制多个 slot
-                int slot_count = member_type->getSlotCount();
+                int slot_count = getSlotCount(member);
 
                 // 计算右值（可能是函数调用返回结构体）
                 genExpression(expr->getRight());
@@ -461,11 +506,11 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
             throw std::runtime_error("Invalid assignment target");
         }
 
+        // ========== 使用类型判断辅助函数 ==========
         // 检查是否是结构体赋值
-        auto left_type = expr->getLeft()->getResolvedType();
-        if (left_type->isStruct()) {
+        if (isStructType(expr->getLeft())) {
             // 结构体整体赋值：使用 MEMCPY
-            int slot_count = left_type->getSlotCount();
+            int slot_count = getSlotCount(expr->getLeft());
 
             // 计算源地址（右边）
             // 右边可以是变量或函数调用
@@ -601,11 +646,11 @@ void CodeGen::genFunctionCall(FunctionCallNode* expr) {
     int total_param_slots = 0;
     for (int i = expr->getArgs().size() - 1; i >= 0; --i) {
         auto arg = expr->getArgs()[i].get();
-        auto arg_type = arg->getResolvedType();
 
-        if (arg_type && arg_type->isStruct()) {
+        // ========== 使用类型判断辅助函数 ==========
+        if (isStructType(arg)) {
             // 结构体参数：需要压入多个 slot
-            int slot_count = arg_type->getSlotCount();
+            int slot_count = getSlotCount(arg);
             total_param_slots += slot_count;
 
             // 获取结构体变量的地址，然后逐个 slot 压栈
@@ -675,9 +720,10 @@ void CodeGen::genArrayAccess(ArrayAccessNode* expr) {
 
 // 生成数组访问的地址（不加载值），用于多维数组
 void CodeGen::genArrayAccessAddr(ArrayAccessNode* expr) {
-    auto array_type = expr->getArray()->getResolvedType();
+    // ========== 使用类型判断辅助函数 ==========
     int elem_size = 1;
-    if (array_type && array_type->isArray()) {
+    if (isArrayType(expr->getArray())) {
+        auto array_type = expr->getArray()->getResolvedType();
         auto* arr = static_cast<ArrayType*>(array_type.get());
         elem_size = arr->getElementType()->getSlotCount();
     }
@@ -723,12 +769,12 @@ void CodeGen::genMemberAccess(MemberAccessNode* expr) {
 
 // 生成成员访问地址
 void CodeGen::genMemberAccessAddr(MemberAccessNode* expr) {
-    // 获取对象类型
-    auto object_type = expr->getObject()->getResolvedType();
-    if (!object_type || !object_type->isStruct()) {
+    // ========== 使用类型判断辅助函数 ==========
+    if (!isStructType(expr->getObject())) {
         throw std::runtime_error("Member access on non-struct type");
     }
 
+    auto object_type = expr->getObject()->getResolvedType();
     auto struct_type = std::dynamic_pointer_cast<StructType>(object_type);
     int member_offset = struct_type->getMemberOffset(expr->getMember());
 

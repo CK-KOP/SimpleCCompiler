@@ -54,6 +54,16 @@ private:
     int allocStruct(const std::string& name, int slot_count);
     int getLocal(const std::string& name);
     bool isArray(const std::string& name);
+
+    // ========== 类型判断辅助函数 ==========
+    bool isStructType(ExprNode* node) const;
+    bool isArrayType(ExprNode* node) const;
+    bool isPointerType(ExprNode* node) const;
+    bool isIntType(ExprNode* node) const;
+    int getSlotCount(ExprNode* node) const;
+    int getSlotCount(std::shared_ptr<Type> type) const;
+    bool hasValidType(ExprNode* node) const;
+    std::shared_ptr<Type> getType(ExprNode* node) const;
 };
 
 #endif // CODEGEN_H
