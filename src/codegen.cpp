@@ -66,7 +66,12 @@ void CodeGen::genFunction(FunctionDeclNode* func) {
     // 记录函数地址
     code_.functions[func->getName()] = code_.currentAddress();
 
-    // 重置局部变量表
+    // ========== 重置新的变量管理系统 ==========
+    variables_.clear();
+    next_local_offset_ = 0;
+    next_param_offset_ = -3;
+
+    // ========== 重置旧的变量管理系统（兼容） ==========
     locals_.clear();
     array_sizes_.clear();
     local_offset_ = 0;
@@ -91,13 +96,22 @@ void CodeGen::genFunction(FunctionDeclNode* func) {
     //   [ret_addr]   fp - 2
     //   [old_fp]     fp - 1
     //   fp ->
+
+    // ========== 使用新的变量管理系统记录参数 ==========
     int param_offset = -3;  // 第一个参数从 fp-3 开始
     for (size_t i = 0; i < params.size(); ++i) {
         auto param_type = params[i].getResolvedType();
         int slot_count = param_type ? param_type->getSlotCount() : 1;
 
-        // 对于多slot的参数（如结构体），locals应该指向最低地址（最后一个slot）
-        locals_[params[i].name] = param_offset - slot_count + 1;
+        // 对于多slot的参数（如结构体），应该指向最低地址（最后一个slot）
+        int offset = param_offset - slot_count + 1;
+
+        // 记录到新系统
+        variables_[params[i].name] = VariableInfo(offset, slot_count, false, true);
+
+        // 同步到旧系统（兼容）
+        locals_[params[i].name] = offset;
+
         param_offset -= slot_count;
     }
 
@@ -168,42 +182,24 @@ void CodeGen::genVarDecl(VarDeclStmtNode* stmt) {
         throw std::runtime_error("Variable type not resolved: " + stmt->getName());
     }
 
-    // 使用 getSlotCount() 获取总slot数（支持多维数组、指针数组和结构体）
+    // ========== 使用统一的变量分配接口 ==========
+    // 自动计算 slot 数并分配空间
+    int offset = allocateVariable(stmt->getName(), type);
     int slot_count = type->getSlotCount();
 
-    if (type->isArray()) {
-        int offset = allocArray(stmt->getName(), slot_count);
+    // 初始化变量
+    if (stmt->hasInitializer()) {
+        // 有初始化器：执行初始化表达式
+        genExpression(stmt->getInitializer());
+        // 初始化器会将所有 slot 压栈，这些 slot 就是变量的存储空间
+    } else {
+        // 无初始化器：初始化为 0
         for (int i = 0; i < slot_count; i++) {
             code_.emit(OpCode::PUSH, 0);
         }
-        (void)offset;
-    } else if (type->isStruct()) {
-        // 结构体变量：分配多个slot
-        if (stmt->hasInitializer()) {
-            // 有初始化器（通常是函数调用返回结构体）
-            // 先执行初始化器，将结构体压栈
-            genExpression(stmt->getInitializer());
-            // 初始化器会将结构体的所有 slot 压栈（ret_slot）
-            // 然后分配变量，这些 slot 就是变量的存储空间
-            int offset = allocStruct(stmt->getName(), slot_count);
-            (void)offset;
-        } else {
-            // 无初始化器，先分配空间，再初始化为0
-            int offset = allocStruct(stmt->getName(), slot_count);
-            for (int i = 0; i < slot_count; i++) {
-                code_.emit(OpCode::PUSH, 0);
-            }
-            (void)offset;
-        }
-    } else {
-        int offset = allocLocal(stmt->getName());
-        if (stmt->hasInitializer()) {
-            genExpression(stmt->getInitializer());
-        } else {
-            code_.emit(OpCode::PUSH, 0);
-        }
-        (void)offset;
     }
+
+    (void)offset;  // 暂时未使用，后续会用到
 }
 
 void CodeGen::genIfStmt(IfStmtNode* stmt) {
@@ -699,6 +695,72 @@ void CodeGen::genFunctionCall(FunctionCallNode* expr) {
     // 对于 struct 返回值：栈顶是多个 slot，就像一个"临时结构体变量"
 }
 
+// ========== 新的统一变量管理系统实现 ==========
+
+int CodeGen::allocateVariable(const std::string& name, std::shared_ptr<Type> type) {
+    if (!type) {
+        throw std::runtime_error("Cannot allocate variable without type: " + name);
+    }
+
+    // 自动计算 slot 数
+    int slot_count = type->getSlotCount();
+    int offset = next_local_offset_;
+    next_local_offset_ += slot_count;
+
+    // 记录变量信息
+    variables_[name] = VariableInfo(offset, slot_count, false, false);
+
+    // 同步到旧系统（兼容性）
+    locals_[name] = offset;
+    local_offset_ = next_local_offset_;
+    if (slot_count > 1) {
+        array_sizes_[name] = slot_count;
+    }
+
+    return offset;
+}
+
+int CodeGen::allocateGlobalVariable(const std::string& name, std::shared_ptr<Type> type) {
+    // Phase 6 实现
+    throw std::runtime_error("Global variables not supported yet");
+}
+
+const VariableInfo* CodeGen::findVariable(const std::string& name) const {
+    auto it = variables_.find(name);
+    if (it == variables_.end()) {
+        return nullptr;
+    }
+    return &it->second;
+}
+
+int CodeGen::getVariableOffset(const std::string& name) const {
+    auto* info = findVariable(name);
+    if (!info) {
+        throw std::runtime_error("Unknown variable: " + name);
+    }
+    return info->offset;
+}
+
+int CodeGen::getVariableSlotCount(const std::string& name) const {
+    auto* info = findVariable(name);
+    if (!info) {
+        throw std::runtime_error("Unknown variable: " + name);
+    }
+    return info->slot_count;
+}
+
+bool CodeGen::isGlobalVariable(const std::string& name) const {
+    auto* info = findVariable(name);
+    return info && info->is_global;
+}
+
+bool CodeGen::isParameter(const std::string& name) const {
+    auto* info = findVariable(name);
+    return info && info->is_parameter;
+}
+
+// ========== 旧的变量管理系统（待删除） ==========
+
 int CodeGen::allocLocal(const std::string& name) {
     int offset = local_offset_++;
     locals_[name] = offset;
@@ -706,11 +768,19 @@ int CodeGen::allocLocal(const std::string& name) {
 }
 
 int CodeGen::getLocal(const std::string& name) {
-    auto it = locals_.find(name);
-    if (it == locals_.end()) {
-        throw std::runtime_error("Unknown variable: " + name);
+    // 先尝试新的变量管理系统
+    auto* info = findVariable(name);
+    if (info) {
+        return info->offset;
     }
-    return it->second;
+
+    // 兼容旧的变量管理系统
+    auto it = locals_.find(name);
+    if (it != locals_.end()) {
+        return it->second;
+    }
+
+    throw std::runtime_error("Unknown variable: " + name);
 }
 
 void CodeGen::genArrayAccess(ArrayAccessNode* expr) {
