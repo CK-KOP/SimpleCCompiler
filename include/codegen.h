@@ -33,13 +33,6 @@ private:
     int next_global_offset_ = 0;  // 下一个全局变量偏移（Phase 6）
     int next_param_offset_ = -3;  // 下一个参数偏移（从 fp-3 开始）
 
-    // ========== 旧的变量管理系统（兼容，逐步迁移） ==========
-    // 当前函数的局部变量表: 变量名 -> 栈偏移
-    std::unordered_map<std::string, int> locals_;
-    // 数组大小表: 数组名 -> 大小 (非数组变量不在此表中)
-    std::unordered_map<std::string, int> array_sizes_;
-    int local_offset_ = 0;  // 下一个局部变量的偏移
-
     // 用于 break/continue
     std::vector<int> break_targets_;
     std::vector<int> continue_targets_;
@@ -72,11 +65,7 @@ private:
     void genMemberAccess(MemberAccessNode* expr);
     void genMemberAccessAddr(MemberAccessNode* expr);
 
-    int allocLocal(const std::string& name);
-    int allocArray(const std::string& name, int size);
-    int allocStruct(const std::string& name, int slot_count);
     int getLocal(const std::string& name);
-    bool isArray(const std::string& name);
 
     // ========== 统一变量分配接口 ==========
     int allocateVariable(const std::string& name, std::shared_ptr<Type> type);

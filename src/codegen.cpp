@@ -71,11 +71,6 @@ void CodeGen::genFunction(FunctionDeclNode* func) {
     next_local_offset_ = 0;
     next_param_offset_ = -3;
 
-    // ========== 重置旧的变量管理系统（兼容） ==========
-    locals_.clear();
-    array_sizes_.clear();
-    local_offset_ = 0;
-
     // 记录参数 slot 数 (用于计算 ret_slot_offset)
     const auto& params = func->getParams();
     current_param_slots_ = 0;
@@ -108,9 +103,6 @@ void CodeGen::genFunction(FunctionDeclNode* func) {
 
         // 记录到新系统
         variables_[params[i].name] = VariableInfo(offset, slot_count, false, true);
-
-        // 同步到旧系统（兼容）
-        locals_[params[i].name] = offset;
 
         param_offset -= slot_count;
     }
@@ -157,23 +149,22 @@ void CodeGen::genStatement(StmtNode* stmt) {
 }
 
 void CodeGen::genCompoundStmt(CompoundStmtNode* stmt) {
+    // ========== 使用新的变量管理系统管理作用域 ==========
     // 保存当前作用域状态
-    int saved_offset = local_offset_;
-    auto saved_locals = locals_;
-    auto saved_arrays = array_sizes_;
+    int saved_offset = next_local_offset_;
+    auto saved_variables = variables_;
 
     for (const auto& s : stmt->getStatements()) {
         genStatement(s.get());
     }
 
     // 恢复作用域状态（回收局部变量空间）
-    int vars_to_pop = local_offset_ - saved_offset;
+    int vars_to_pop = next_local_offset_ - saved_offset;
     if (vars_to_pop > 0) {
         code_.emit(OpCode::ADJSP, vars_to_pop);
     }
-    local_offset_ = saved_offset;
-    locals_ = saved_locals;
-    array_sizes_ = saved_arrays;
+    next_local_offset_ = saved_offset;
+    variables_ = saved_variables;
 }
 
 void CodeGen::genVarDecl(VarDeclStmtNode* stmt) {
@@ -707,15 +698,8 @@ int CodeGen::allocateVariable(const std::string& name, std::shared_ptr<Type> typ
     int offset = next_local_offset_;
     next_local_offset_ += slot_count;
 
-    // 记录变量信息
+    // 记录到新系统
     variables_[name] = VariableInfo(offset, slot_count, false, false);
-
-    // 同步到旧系统（兼容性）
-    locals_[name] = offset;
-    local_offset_ = next_local_offset_;
-    if (slot_count > 1) {
-        array_sizes_[name] = slot_count;
-    }
 
     return offset;
 }
@@ -759,25 +743,11 @@ bool CodeGen::isParameter(const std::string& name) const {
     return info && info->is_parameter;
 }
 
-// ========== 旧的变量管理系统（待删除） ==========
-
-int CodeGen::allocLocal(const std::string& name) {
-    int offset = local_offset_++;
-    locals_[name] = offset;
-    return offset;
-}
-
 int CodeGen::getLocal(const std::string& name) {
-    // 先尝试新的变量管理系统
+    // ========== 只使用新的变量管理系统 ==========
     auto* info = findVariable(name);
     if (info) {
         return info->offset;
-    }
-
-    // 兼容旧的变量管理系统
-    auto it = locals_.find(name);
-    if (it != locals_.end()) {
-        return it->second;
     }
 
     throw std::runtime_error("Unknown variable: " + name);
@@ -810,25 +780,6 @@ void CodeGen::genArrayAccessAddr(ArrayAccessNode* expr) {
     }
 
     code_.emit(OpCode::ADDPTRD, elem_size);
-}
-
-int CodeGen::allocArray(const std::string& name, int size) {
-    int offset = local_offset_;
-    locals_[name] = offset;
-    array_sizes_[name] = size;
-    local_offset_ += size;  // 预留 size 个位置
-    return offset;
-}
-
-int CodeGen::allocStruct(const std::string& name, int slot_count) {
-    int offset = local_offset_;
-    locals_[name] = offset;
-    local_offset_ += slot_count;  // 预留 slot_count 个位置
-    return offset;
-}
-
-bool CodeGen::isArray(const std::string& name) {
-    return array_sizes_.find(name) != array_sizes_.end();
 }
 
 // 生成成员访问表达式（加载值）
