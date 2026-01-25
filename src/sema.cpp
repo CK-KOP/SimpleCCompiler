@@ -32,6 +32,11 @@ bool Sema::analyze(ProgramNode* program) {
         analyzeStructDecl(struct_decl.get());
     }
 
+    // 分析全局变量声明
+    for (const auto& global_var : program->getGlobalVars()) {
+        analyzeGlobalVarDecl(global_var.get());
+    }
+
     // 再分析所有函数定义
     for (const auto& func : program->getFunctions()) {
         analyzeFunction(func.get());
@@ -268,18 +273,24 @@ std::shared_ptr<Type> Sema::analyzeExpression(ExprNode* expr) {
 }
 
 std::shared_ptr<Type> Sema::analyzeVariable(VariableNode* expr) {
+    // 先在局部作用域中查找
     auto symbol = scope_.findSymbol(expr->getName());
-    if (!symbol) {
-        error("未声明的变量: " + expr->getName());
-        return Type::getIntType();
-    }
-
-    if (symbol->getType()->isFunction()) {
-        // 函数名作为表达式使用（函数指针，暂不支持）
+    if (symbol) {
+        if (symbol->getType()->isFunction()) {
+            // 函数名作为表达式使用（函数指针，暂不支持）
+            return symbol->getType();
+        }
         return symbol->getType();
     }
 
-    return symbol->getType();
+    // 如果局部作用域找不到，查找全局符号表
+    auto global_it = global_symbols_.find(expr->getName());
+    if (global_it != global_symbols_.end()) {
+        return global_it->second;
+    }
+
+    error("未声明的变量: " + expr->getName());
+    return Type::getIntType();
 }
 
 std::shared_ptr<Type> Sema::analyzeBinaryOp(BinaryOpNode* expr) {
@@ -546,4 +557,60 @@ bool Sema::isTypeCompatible(const std::shared_ptr<Type>& left, const std::shared
 
     // 其他情况不兼容
     return false;
+}
+
+// 分析全局变量声明
+void Sema::analyzeGlobalVarDecl(VarDeclStmtNode* global_var) {
+    // 检查是否重复定义
+    if (global_symbols_.find(global_var->getName()) != global_symbols_.end()) {
+        error("全局变量重复定义: " + global_var->getName());
+        return;
+    }
+
+    // 解析变量类型
+    std::shared_ptr<Type> var_type;
+    if (global_var->isArray()) {
+        // 数组类型
+        auto element_type = stringToType(global_var->getType());
+        if (!element_type) {
+            error("未知的数组元素类型: " + global_var->getType());
+            return;
+        }
+
+        // 计算数组总大小
+        int total_size = 1;
+        for (int dim : global_var->getArrayDims()) {
+            total_size *= dim;
+        }
+
+        var_type = std::make_shared<ArrayType>(element_type, total_size);
+    } else {
+        // 普通类型
+        var_type = stringToType(global_var->getType());
+        if (!var_type) {
+            error("未知的变量类型: " + global_var->getType());
+            return;
+        }
+    }
+
+    // 设置类型到AST
+    global_var->setResolvedType(var_type);
+
+    // 添加到全局符号表
+    global_symbols_[global_var->getName()] = var_type;
+
+    // 如果有初始化器，分析初始化表达式
+    if (global_var->hasInitializer()) {
+        auto init_type = analyzeExpression(global_var->getInitializer());
+        if (!init_type) {
+            error("无法分析初始化表达式的类型");
+            return;
+        }
+
+        // 检查类型兼容性
+        if (!isTypeCompatible(var_type, init_type)) {
+            error("全局变量初始化类型不匹配: 不能将 " + init_type->toString() +
+                  " 类型赋值给 " + var_type->toString() + " 类型");
+        }
+    }
 }

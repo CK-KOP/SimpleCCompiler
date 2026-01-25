@@ -26,6 +26,9 @@ private:
     // 当前正在分析的函数的返回类型
     std::shared_ptr<Type> current_function_return_type_;
 
+    // 全局符号表（用于检查重复定义）
+    std::unordered_map<std::string, std::shared_ptr<Type>> global_symbols_;
+
     void error(const std::string& msg, int line = 0) {
         errors_.emplace_back(msg, line);
     }
@@ -40,7 +43,15 @@ public:
     const std::vector<SemanticError>& getErrors() const { return errors_; }
     bool hasErrors() const { return !errors_.empty(); }
 
+    // 获取全局符号表（供 CodeGen 使用）
+    const std::unordered_map<std::string, std::shared_ptr<Type>>& getGlobalSymbols() const {
+        return global_symbols_;
+    }
+
 private:
+    // 分析全局变量声明
+    void analyzeGlobalVarDecl(VarDeclStmtNode* global_var);
+
     // 分析结构体定义
     void analyzeStructDecl(StructDeclNode* struct_decl);
 

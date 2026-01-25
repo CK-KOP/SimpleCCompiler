@@ -524,11 +524,12 @@ public:
     }
 };
 
-// 程序节点：顶层，包含多个函数定义和结构体定义
+// 程序节点：顶层，包含多个函数定义、结构体定义和全局变量
 class ProgramNode : public ASTNode {
 private:
     std::vector<std::unique_ptr<FunctionDeclNode>> functions_;
     std::vector<std::unique_ptr<StructDeclNode>> structs_;
+    std::vector<std::unique_ptr<VarDeclStmtNode>> global_vars_;
 
 public:
     void addFunction(std::unique_ptr<FunctionDeclNode> func) {
@@ -539,6 +540,10 @@ public:
         structs_.push_back(std::move(struct_decl));
     }
 
+    void addGlobalVar(std::unique_ptr<VarDeclStmtNode> global_var) {
+        global_vars_.push_back(std::move(global_var));
+    }
+
     const std::vector<std::unique_ptr<FunctionDeclNode>>& getFunctions() const {
         return functions_;
     }
@@ -547,15 +552,24 @@ public:
         return structs_;
     }
 
+    const std::vector<std::unique_ptr<VarDeclStmtNode>>& getGlobalVars() const {
+        return global_vars_;
+    }
+
     std::string toString() const override {
         std::string result = "Program(";
         for (size_t i = 0; i < structs_.size(); ++i) {
             if (i > 0) result += ", ";
             result += structs_[i]->toString();
         }
-        if (!structs_.empty() && !functions_.empty()) result += ", ";
+        if (!structs_.empty() && !global_vars_.empty()) result += ", ";
+        for (size_t i = 0; i < global_vars_.size(); ++i) {
+            if (i > 0 || !structs_.empty()) result += ", ";
+            result += global_vars_[i]->toString();
+        }
+        if ((!structs_.empty() || !global_vars_.empty()) && !functions_.empty()) result += ", ";
         for (size_t i = 0; i < functions_.size(); ++i) {
-            if (i > 0) result += ", ";
+            if (i > 0 || !structs_.empty() || !global_vars_.empty()) result += ", ";
             result += functions_[i]->toString();
         }
         result += ")";

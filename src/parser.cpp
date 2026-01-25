@@ -392,20 +392,36 @@ std::unique_ptr<ProgramNode> Parser::parseProgram() {
                         auto func = parseFunctionDeclaration();
                         program->addFunction(std::move(func));
                     } else {
-                        // 情况3: 其他情况都是全局变量声明（暂不支持）
+                        // 情况3: 全局变量声明
                         // 包括：struct Point p;
                         //      struct Point *p;
                         //      struct Point arr[10];
-                        throw std::runtime_error("暂不支持全局变量声明（将在阶段六实现）");
+                        auto global_var = parseGlobalVarDeclaration();
+                        program->addGlobalVar(std::move(global_var));
                     }
                 } else {
-                    // 其他情况也是全局变量声明（暂不支持）
-                    throw std::runtime_error("暂不支持全局变量声明（将在阶段六实现）");
+                    // 其他情况也是全局变量声明
+                    auto global_var = parseGlobalVarDeclaration();
+                    program->addGlobalVar(std::move(global_var));
                 }
             } else {
-                // int/void 开头的函数定义
-                auto func = parseFunctionDeclaration();
-                program->addFunction(std::move(func));
+                // int/void 开头：可能是全局变量或函数定义
+                // 需要向前看判断
+                Token next1 = lexer_.peekNthToken(1);  // int 后的第一个 token
+                if (next1.is(TokenType::Identifier)) {
+                    Token next2 = lexer_.peekNthToken(2);  // 第二个 token
+                    if (next2.is(TokenType::LParen)) {
+                        // 函数定义：int foo(...) { ... }
+                        auto func = parseFunctionDeclaration();
+                        program->addFunction(std::move(func));
+                    } else {
+                        // 全局变量声明：int global_x;
+                        auto global_var = parseGlobalVarDeclaration();
+                        program->addGlobalVar(std::move(global_var));
+                    }
+                } else {
+                    throw std::runtime_error("期望标识符或函数名，但得到: " + next1.toString());
+                }
             }
         } catch (const std::exception& e) {
             throw std::runtime_error("在第" + std::to_string(currentToken_.getLine()) +
@@ -885,4 +901,70 @@ std::unique_ptr<StructDeclNode> Parser::parseStructDeclaration() {
     consume(TokenType::Semicolon, "期望分号在结构体定义后");
 
     return struct_decl;
+}
+
+// 解析全局变量声明：int global_x; int global_arr[10]; struct Point p;
+std::unique_ptr<VarDeclStmtNode> Parser::parseGlobalVarDeclaration() {
+    // 处理结构体类型全局变量：struct Point p; 或 struct Point *ptr;
+    std::string varType;
+    if (match(TokenType::Struct)) {
+        advance(); // 消费 struct
+        if (!match(TokenType::Identifier)) {
+            throw std::runtime_error("期望结构体类型名");
+        }
+        varType = "struct " + currentToken_.getValue();
+        advance();
+
+        // 处理结构体指针类型：struct Point *ptr
+        while (match(TokenType::Multiply)) {
+            varType += "*";
+            advance(); // 消费*
+        }
+    } else {
+        // 基本类型声明：int x;
+        advance(); // 消费 int
+
+        // 构建类型字符串，处理指针类型 int*, int**, ...
+        varType = "int";
+        while (match(TokenType::Multiply)) {
+            varType += "*";
+            advance(); // 消费*
+        }
+    }
+
+    // 获取变量名
+    if (!match(TokenType::Identifier)) {
+        throw std::runtime_error("期望变量名，但得到: " + currentToken_.toString());
+    }
+
+    std::string varName = currentToken_.getValue();
+    advance(); // 消费变量名
+
+    // 检查是否是数组声明（支持多维）
+    std::vector<int> dims;
+    while (match(TokenType::LBracket)) {
+        advance(); // 消费[
+        if (!match(TokenType::Number)) {
+            throw std::runtime_error("期望数组大小，但得到: " + currentToken_.toString());
+        }
+        dims.push_back(std::stoi(currentToken_.getValue()));
+        advance(); // 消费数字
+        consume(TokenType::RBracket, "期望 ']' 在数组大小后");
+    }
+
+    // 如果是数组，不允许初始化（第一阶段）
+    if (!dims.empty()) {
+        consume(TokenType::Semicolon, "期望分号");
+        return std::make_unique<VarDeclStmtNode>(varType, varName, std::move(dims));
+    }
+
+    // 普通变量：检查是否有初始化
+    std::unique_ptr<ExprNode> initializer = nullptr;
+    if (match(TokenType::Assign)) {
+        advance(); // 消费 =
+        initializer = parseExpression();
+    }
+
+    consume(TokenType::Semicolon, "期望分号");
+    return std::make_unique<VarDeclStmtNode>(varType, varName, std::move(initializer));
 }
