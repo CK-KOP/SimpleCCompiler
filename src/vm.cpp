@@ -11,6 +11,9 @@ std::string opcodeName(OpCode op) {
         case OpCode::STORE:  return "STORE";
         case OpCode::LOADM:  return "LOADM";
         case OpCode::STOREM: return "STOREM";
+        case OpCode::LOADG:  return "LOADG";
+        case OpCode::STOREG: return "STOREG";
+        case OpCode::LEAG:   return "LEAG";
         case OpCode::LEA:    return "LEA";
         case OpCode::ADDPTR: return "ADDPTR";
         case OpCode::ADDPTRD:return "ADDPTRD";
@@ -47,12 +50,13 @@ std::string ByteCode::toString() const {
     for (size_t i = 0; i < code.size(); ++i) {
         ss << i << ":\t" << opcodeName(code[i].op);
         if (code[i].op == OpCode::PUSH || code[i].op == OpCode::LOAD ||
-            code[i].op == OpCode::STORE || code[i].op == OpCode::JMP ||
+            code[i].op == OpCode::STORE || code[i].op == OpCode::LOADG ||
+            code[i].op == OpCode::STOREG || code[i].op == OpCode::JMP ||
             code[i].op == OpCode::JZ || code[i].op == OpCode::JNZ ||
             code[i].op == OpCode::CALL || code[i].op == OpCode::LEA ||
-            code[i].op == OpCode::ADDPTR || code[i].op == OpCode::ADDPTRD ||
-            code[i].op == OpCode::ADJSP || code[i].op == OpCode::RET ||
-            code[i].op == OpCode::MEMCPY) {
+            code[i].op == OpCode::LEAG || code[i].op == OpCode::ADDPTR ||
+            code[i].op == OpCode::ADDPTRD || code[i].op == OpCode::ADJSP ||
+            code[i].op == OpCode::RET || code[i].op == OpCode::MEMCPY) {
             ss << " " << code[i].operand;
         }
         ss << "\n";
@@ -77,6 +81,17 @@ int32_t VM::pop() {
 int VM::execute(const ByteCode& bytecode) {
     if (bytecode.entry_point < 0) {
         throw std::runtime_error("No entry point (main function)");
+    }
+
+    // 初始化全局变量存储区 (Phase 6)
+    for (const auto& init : bytecode.global_inits) {
+        for (int i = 0; i < init.slot_count; i++) {
+            if (init.has_init && i == 0) {
+                globals_.push_back(init.init_value);
+            } else {
+                globals_.push_back(0);
+            }
+        }
     }
 
     // 设置虚拟调用帧
@@ -124,17 +139,43 @@ int VM::execute(const ByteCode& bytecode) {
                 break;
 
             case OpCode::LOADM: {
-                // 内存加载: addr = pop(); push(stack[addr])
+                // 内存加载: addr = pop(); push(stack[addr] 或 globals_[addr - GLOBAL_BASE])
                 int32_t addr = pop();
-                push(stack_[addr]);
+                if (addr >= GLOBAL_BASE) {
+                    // 全局变量
+                    int global_offset = addr - GLOBAL_BASE;
+                    if (global_offset < 0 || global_offset >= (int)globals_.size()) {
+                        throw std::runtime_error("LOADM: 全局变量访问越界");
+                    }
+                    push(globals_[global_offset]);
+                } else {
+                    // 栈变量
+                    if (addr < 0 || addr >= STACK_SIZE) {
+                        throw std::runtime_error("LOADM: 栈访问越界");
+                    }
+                    push(stack_[addr]);
+                }
                 break;
             }
 
             case OpCode::STOREM: {
-                // 内存存储: addr = pop(); value = pop(); stack[addr] = value
+                // 内存存储: addr = pop(); value = pop(); stack[addr] 或 globals_[...] = value
                 int32_t addr = pop();
                 int32_t value = pop();
-                stack_[addr] = value;
+                if (addr >= GLOBAL_BASE) {
+                    // 全局变量
+                    int global_offset = addr - GLOBAL_BASE;
+                    if (global_offset < 0 || global_offset >= (int)globals_.size()) {
+                        throw std::runtime_error("STOREM: 全局变量访问越界");
+                    }
+                    globals_[global_offset] = value;
+                } else {
+                    // 栈变量
+                    if (addr < 0 || addr >= STACK_SIZE) {
+                        throw std::runtime_error("STOREM: 栈访问越界");
+                    }
+                    stack_[addr] = value;
+                }
                 break;
             }
 
@@ -297,21 +338,83 @@ int VM::execute(const ByteCode& bytecode) {
 
             case OpCode::MEMCPY: {
                 // 内存复制: size = operand; dst = pop(); src = pop();
-                // 复制 size 个 slot: stack[dst..dst+size-1] = stack[src..src+size-1]
+                // 复制 size 个 slot，支持全局和栈之间的复制
                 int32_t dst = pop();
                 int32_t src = pop();
                 int32_t size = instr.operand;
 
-                // 边界检查
-                if (src < 0 || src + size > STACK_SIZE ||
-                    dst < 0 || dst + size > STACK_SIZE) {
-                    throw std::runtime_error("MEMCPY: 内存访问越界");
-                }
+                // 判断 src 和 dst 是全局还是栈地址
+                bool src_is_global = (src >= GLOBAL_BASE);
+                bool dst_is_global = (dst >= GLOBAL_BASE);
 
-                // 复制内存
-                for (int32_t i = 0; i < size; i++) {
-                    stack_[dst + i] = stack_[src + i];
+                // 边界检查和内存复制
+                if (src_is_global && dst_is_global) {
+                    // 全局到全局
+                    int src_offset = src - GLOBAL_BASE;
+                    int dst_offset = dst - GLOBAL_BASE;
+                    if (src_offset < 0 || src_offset + size > (int)globals_.size() ||
+                        dst_offset < 0 || dst_offset + size > (int)globals_.size()) {
+                        throw std::runtime_error("MEMCPY: 全局变量访问越界");
+                    }
+                    for (int32_t i = 0; i < size; i++) {
+                        globals_[dst_offset + i] = globals_[src_offset + i];
+                    }
+                } else if (src_is_global && !dst_is_global) {
+                    // 全局到栈
+                    int src_offset = src - GLOBAL_BASE;
+                    if (src_offset < 0 || src_offset + size > (int)globals_.size() ||
+                        dst < 0 || dst + size > STACK_SIZE) {
+                        throw std::runtime_error("MEMCPY: 内存访问越界");
+                    }
+                    for (int32_t i = 0; i < size; i++) {
+                        stack_[dst + i] = globals_[src_offset + i];
+                    }
+                } else if (!src_is_global && dst_is_global) {
+                    // 栈到全局
+                    int dst_offset = dst - GLOBAL_BASE;
+                    if (src < 0 || src + size > STACK_SIZE ||
+                        dst_offset < 0 || dst_offset + size > (int)globals_.size()) {
+                        throw std::runtime_error("MEMCPY: 内存访问越界");
+                    }
+                    for (int32_t i = 0; i < size; i++) {
+                        globals_[dst_offset + i] = stack_[src + i];
+                    }
+                } else {
+                    // 栈到栈
+                    if (src < 0 || src + size > STACK_SIZE ||
+                        dst < 0 || dst + size > STACK_SIZE) {
+                        throw std::runtime_error("MEMCPY: 栈访问越界");
+                    }
+                    for (int32_t i = 0; i < size; i++) {
+                        stack_[dst + i] = stack_[src + i];
+                    }
                 }
+                break;
+            }
+
+            case OpCode::LOADG: {
+                // 加载全局变量: push(globals_[operand])
+                int32_t offset = instr.operand;
+                if (offset < 0 || offset >= (int)globals_.size()) {
+                    throw std::runtime_error("LOADG: 全局变量访问越界");
+                }
+                push(globals_[offset]);
+                break;
+            }
+
+            case OpCode::STOREG: {
+                // 存储全局变量: globals_[operand] = pop()
+                int32_t offset = instr.operand;
+                if (offset < 0 || offset >= (int)globals_.size()) {
+                    throw std::runtime_error("STOREG: 全局变量访问越界");
+                }
+                globals_[offset] = pop();
+                break;
+            }
+
+            case OpCode::LEAG: {
+                // 加载全局变量地址: push(GLOBAL_BASE + operand)
+                push(GLOBAL_BASE + instr.operand);
                 break;
             }
         }

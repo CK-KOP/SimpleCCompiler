@@ -48,7 +48,44 @@ std::shared_ptr<Type> CodeGen::getType(ExprNode* node) const {
 // ==========================================
 
 ByteCode CodeGen::generate(ProgramNode* program) {
-    // 生成所有函数的代码
+    // ========== Phase 6: 处理全局变量 ==========
+    // 1. 为所有全局变量分配空间
+    for (const auto& global_var : program->getGlobalVars()) {
+        auto type = global_var->getResolvedType();
+        if (!type) {
+            throw std::runtime_error("Global variable type not resolved: " + global_var->getName());
+        }
+        allocateGlobalVariable(global_var->getName(), type);
+    }
+
+    // 2. 收集全局变量初始化信息（包括未初始化的）
+    for (const auto& global_var : program->getGlobalVars()) {
+        auto type = global_var->getResolvedType();
+        auto* info = findVariable(global_var->getName());
+        if (!info || !info->is_global) {
+            throw std::runtime_error("Global variable not allocated: " + global_var->getName());
+        }
+
+        GlobalVarInit init;
+        init.offset = info->offset;
+        init.slot_count = info->slot_count;
+        init.has_init = false;
+        init.init_value = 0;
+
+        if (global_var->hasInitializer()) {
+            // 只支持常量初始化
+            auto* num = dynamic_cast<NumberNode*>(global_var->getInitializer());
+            if (!num) {
+                throw std::runtime_error("全局变量只能用常量初始化: " + global_var->getName());
+            }
+            init.init_value = num->getValue();
+            init.has_init = true;
+        }
+
+        code_.global_inits.push_back(init);
+    }
+
+    // 3. 生成函数代码（正常流程）
     for (const auto& func : program->getFunctions()) {
         genFunction(func.get());
     }
@@ -372,17 +409,34 @@ void CodeGen::genExpression(ExprNode* expr) {
     if (auto* num = dynamic_cast<NumberNode*>(expr)) {
         code_.emit(OpCode::PUSH, num->getValue());
     } else if (auto* var = dynamic_cast<VariableNode*>(expr)) {
-        int offset = getLocal(var->getName());
-        // ========== 使用类型判断辅助函数 ==========
-        if (isStructType(var)) {
-            // 结构体变量：需要加载所有 slot
-            int slot_count = getSlotCount(var);
-            for (int i = 0; i < slot_count; ++i) {
-                code_.emit(OpCode::LOAD, offset + i);
+        // ========== Phase 6: 支持全局变量访问 ==========
+        auto* info = findVariable(var->getName());
+        if (!info) {
+            throw std::runtime_error("Unknown variable: " + var->getName());
+        }
+
+        if (info->is_global) {
+            // 全局变量：使用 LOADG
+            if (isStructType(var)) {
+                // 全局结构体：需要加载所有 slot
+                int slot_count = getSlotCount(var);
+                for (int i = 0; i < slot_count; ++i) {
+                    code_.emit(OpCode::LOADG, info->offset + i);
+                }
+            } else {
+                // 普通全局变量：加载 1 个 slot
+                code_.emit(OpCode::LOADG, info->offset);
             }
         } else {
-            // 普通变量：加载 1 个 slot
-            code_.emit(OpCode::LOAD, offset);
+            // 局部变量：使用 LOAD
+            if (isStructType(var)) {
+                int slot_count = getSlotCount(var);
+                for (int i = 0; i < slot_count; ++i) {
+                    code_.emit(OpCode::LOAD, info->offset + i);
+                }
+            } else {
+                code_.emit(OpCode::LOAD, info->offset);
+            }
         }
     } else if (auto* binary = dynamic_cast<BinaryOpNode*>(expr)) {
         genBinaryOp(binary);
@@ -503,8 +557,15 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
             // 右边可以是变量或函数调用
             if (auto* right_var = dynamic_cast<VariableNode*>(expr->getRight())) {
                 // 右边是变量：直接获取地址
-                int src_offset = getLocal(right_var->getName());
-                code_.emit(OpCode::LEA, src_offset);  // 源地址
+                auto* src_info = findVariable(right_var->getName());
+                if (!src_info) {
+                    throw std::runtime_error("Unknown variable: " + right_var->getName());
+                }
+                if (src_info->is_global) {
+                    code_.emit(OpCode::LEAG, src_info->offset);  // 源地址（全局）
+                } else {
+                    code_.emit(OpCode::LEA, src_info->offset);  // 源地址（局部）
+                }
             } else if (auto* right_call = dynamic_cast<FunctionCallNode*>(expr->getRight())) {
                 // 右边是函数调用：函数返回值会在栈上（ret_slot位置）
                 // 先调用函数，ret_slot（多个slot）会被压栈
@@ -536,22 +597,48 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
             }
 
             // 计算目标地址（左边）
-            int dst_offset = getLocal(var->getName());
-            code_.emit(OpCode::LEA, dst_offset);  // 目标地址
+            auto* dst_info = findVariable(var->getName());
+            if (!dst_info) {
+                throw std::runtime_error("Unknown variable: " + var->getName());
+            }
+
+            // 先把目标地址压栈（用于 MEMCPY）
+            if (dst_info->is_global) {
+                code_.emit(OpCode::LEAG, dst_info->offset);  // 目标地址（全局）
+            } else {
+                code_.emit(OpCode::LEA, dst_info->offset);  // 目标地址（局部）
+            }
 
             // 执行内存复制
             code_.emit(OpCode::MEMCPY, slot_count);
 
             // 赋值表达式返回值：加载第一个 slot（简化处理）
-            code_.emit(OpCode::LOAD, dst_offset);
+            if (dst_info->is_global) {
+                code_.emit(OpCode::LOADG, dst_info->offset);
+            } else {
+                code_.emit(OpCode::LOAD, dst_info->offset);
+            }
             return;
         }
 
         // 普通变量赋值（int、指针等）
         genExpression(expr->getRight());
-        int offset = getLocal(var->getName());
-        code_.emit(OpCode::STORE, offset);
-        code_.emit(OpCode::LOAD, offset);  // 赋值表达式返回值
+
+        // ========== Phase 6: 支持全局变量赋值 ==========
+        auto* info = findVariable(var->getName());
+        if (!info) {
+            throw std::runtime_error("Unknown variable: " + var->getName());
+        }
+
+        if (info->is_global) {
+            // 全局变量：使用 STOREG
+            code_.emit(OpCode::STOREG, info->offset);
+            code_.emit(OpCode::LOADG, info->offset);  // 赋值表达式返回值
+        } else {
+            // 局部变量：使用 STORE
+            code_.emit(OpCode::STORE, info->offset);
+            code_.emit(OpCode::LOAD, info->offset);  // 赋值表达式返回值
+        }
         return;
     }
 
@@ -580,8 +667,19 @@ void CodeGen::genUnaryOp(UnaryOpNode* expr) {
     // 取地址运算符 &
     if (expr->getOperator() == TokenType::Ampersand) {
         if (auto* var = dynamic_cast<VariableNode*>(expr->getOperand())) {
-            int offset = getLocal(var->getName());
-            code_.emit(OpCode::LEA, offset);  // 将变量地址压栈
+            // ========== Phase 6: 支持全局变量取地址 ==========
+            auto* info = findVariable(var->getName());
+            if (!info) {
+                throw std::runtime_error("Unknown variable: " + var->getName());
+            }
+
+            if (info->is_global) {
+                // 全局变量：使用 LEAG
+                code_.emit(OpCode::LEAG, info->offset);
+            } else {
+                // 局部变量：使用 LEA
+                code_.emit(OpCode::LEA, info->offset);
+            }
             return;
         } else if (auto* member = dynamic_cast<MemberAccessNode*>(expr->getOperand())) {
             // 取结构体成员的地址：&obj.member
@@ -705,16 +803,34 @@ int CodeGen::allocateVariable(const std::string& name, std::shared_ptr<Type> typ
 }
 
 int CodeGen::allocateGlobalVariable(const std::string& name, std::shared_ptr<Type> type) {
-    // Phase 6 实现
-    throw std::runtime_error("Global variables not supported yet");
+    if (!type) {
+        throw std::runtime_error("Cannot allocate global variable without type: " + name);
+    }
+
+    int slot_count = type->getSlotCount();
+    int offset = next_global_offset_;
+    next_global_offset_ += slot_count;
+
+    // 记录到全局变量表（标记为全局变量）
+    global_variables_[name] = VariableInfo(offset, slot_count, true, false);
+
+    return offset;
 }
 
 const VariableInfo* CodeGen::findVariable(const std::string& name) const {
+    // 先查局部变量（包括参数）
     auto it = variables_.find(name);
-    if (it == variables_.end()) {
-        return nullptr;
+    if (it != variables_.end()) {
+        return &it->second;
     }
-    return &it->second;
+
+    // 再查全局变量
+    auto git = global_variables_.find(name);
+    if (git != global_variables_.end()) {
+        return &git->second;
+    }
+
+    return nullptr;
 }
 
 int CodeGen::getVariableOffset(const std::string& name) const {
@@ -771,7 +887,19 @@ void CodeGen::genArrayAccessAddr(ArrayAccessNode* expr) {
     genExpression(expr->getIndex());
 
     if (auto* var = dynamic_cast<VariableNode*>(expr->getArray())) {
-        code_.emit(OpCode::LEA, getLocal(var->getName()));
+        // ========== Phase 6: 支持全局数组 ==========
+        auto* info = findVariable(var->getName());
+        if (!info) {
+            throw std::runtime_error("Unknown variable: " + var->getName());
+        }
+
+        if (info->is_global) {
+            // 全局数组：使用 LEAG
+            code_.emit(OpCode::LEAG, info->offset);
+        } else {
+            // 局部数组：使用 LEA
+            code_.emit(OpCode::LEA, info->offset);
+        }
     } else if (auto* inner = dynamic_cast<ArrayAccessNode*>(expr->getArray())) {
         genArrayAccessAddr(inner);
     } else if (auto* member = dynamic_cast<MemberAccessNode*>(expr->getArray())) {
@@ -801,9 +929,19 @@ void CodeGen::genMemberAccessAddr(MemberAccessNode* expr) {
 
     // 计算对象基地址 + 成员偏移
     if (auto* var = dynamic_cast<VariableNode*>(expr->getObject())) {
-        // 简单情况：obj.member
-        int base_offset = getLocal(var->getName());
-        code_.emit(OpCode::LEA, base_offset + member_offset);
+        // ========== Phase 6: 支持全局结构体成员 ==========
+        auto* info = findVariable(var->getName());
+        if (!info) {
+            throw std::runtime_error("Unknown variable: " + var->getName());
+        }
+
+        if (info->is_global) {
+            // 全局结构体：使用 LEAG
+            code_.emit(OpCode::LEAG, info->offset + member_offset);
+        } else {
+            // 局部结构体：使用 LEA
+            code_.emit(OpCode::LEA, info->offset + member_offset);
+        }
     } else if (auto* inner_member = dynamic_cast<MemberAccessNode*>(expr->getObject())) {
         // 链式成员访问：obj.inner.member
         genMemberAccessAddr(inner_member);

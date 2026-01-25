@@ -406,16 +406,24 @@ std::unique_ptr<ProgramNode> Parser::parseProgram() {
                 }
             } else {
                 // int/void 开头：可能是全局变量或函数定义
-                // 需要向前看判断
+                // 需要向前看判断，跳过可能的 * 指针符号
                 Token next1 = lexer_.peekNthToken(1);  // int 后的第一个 token
+                int offset = 1;
+
+                // 跳过所有的 * (指针类型)
+                while (next1.is(TokenType::Multiply)) {
+                    offset++;
+                    next1 = lexer_.peekNthToken(offset);
+                }
+
                 if (next1.is(TokenType::Identifier)) {
-                    Token next2 = lexer_.peekNthToken(2);  // 第二个 token
+                    Token next2 = lexer_.peekNthToken(offset + 1);  // 标识符后的 token
                     if (next2.is(TokenType::LParen)) {
-                        // 函数定义：int foo(...) { ... }
+                        // 函数定义：int foo(...) { ... } 或 int* foo(...) { ... }
                         auto func = parseFunctionDeclaration();
                         program->addFunction(std::move(func));
                     } else {
-                        // 全局变量声明：int global_x;
+                        // 全局变量声明：int global_x; 或 int* global_ptr;
                         auto global_var = parseGlobalVarDeclaration();
                         program->addGlobalVar(std::move(global_var));
                     }

@@ -26,8 +26,11 @@ private:
     ByteCode code_;
 
     // ========== 新的统一变量管理系统 ==========
-    // 统一的变量表：管理局部变量、全局变量、参数
+    // 统一的变量表：管理局部变量、参数
     std::unordered_map<std::string, VariableInfo> variables_;
+
+    // 全局变量表（不随函数清空，持久存在）
+    std::unordered_map<std::string, VariableInfo> global_variables_;
 
     int next_local_offset_ = 0;   // 下一个局部变量偏移
     int next_global_offset_ = 0;  // 下一个全局变量偏移（Phase 6）

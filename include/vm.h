@@ -15,8 +15,13 @@ enum class OpCode : uint8_t {
     // 变量操作
     LOAD,       // 加载局部变量: push(stack[fp + operand])
     STORE,      // 存储局部变量: stack[fp + operand] = pop()
-    LOADM,      // 内存加载: addr = pop(); push(stack[addr])
-    STOREM,     // 内存存储: addr = pop(); value = pop(); stack[addr] = value
+    LOADM,      // 内存加载: addr = pop(); push(stack[addr] 或 globals_[addr - GLOBAL_BASE])
+    STOREM,     // 内存存储: addr = pop(); value = pop(); stack[addr] 或 globals_[...] = value
+
+    // 全局变量操作 (Phase 6)
+    LOADG,      // 加载全局变量: push(globals_[operand])
+    STOREG,     // 存储全局变量: globals_[operand] = pop()
+    LEAG,       // 加载全局变量地址: push(GLOBAL_BASE + operand)
 
     // 地址计算
     LEA,        // 加载有效地址: push(fp + operand)
@@ -59,11 +64,22 @@ struct Instruction {
     Instruction(OpCode o, int32_t val = 0) : op(o), operand(val) {}
 };
 
+// 全局变量初始化信息 (Phase 6)
+struct GlobalVarInit {
+    int offset;           // 全局变量偏移
+    int slot_count;       // 占用的 slot 数
+    int32_t init_value;   // 初始值（仅用于常量初始化）
+    bool has_init;        // 是否有初始化器
+
+    GlobalVarInit() : offset(0), slot_count(0), init_value(0), has_init(false) {}
+};
+
 // 字节码程序
 class ByteCode {
 public:
     std::vector<Instruction> code;
     std::unordered_map<std::string, int> functions;  // 函数名 -> 地址
+    std::vector<GlobalVarInit> global_inits;         // 全局变量初始化信息 (Phase 6)
     int entry_point = -1;
 
     void emit(OpCode op, int32_t operand = 0) {
@@ -83,7 +99,10 @@ public:
 class VM {
 private:
     static const int STACK_SIZE = 4096;
+    static const int GLOBAL_BASE = 0x40000000;  // 全局变量地址基址（Phase 6）
+
     std::vector<int32_t> stack_;
+    std::vector<int32_t> globals_;  // 全局变量存储区（Phase 6）
     int sp_ = 0;    // 栈指针
     int fp_ = 0;    // 帧指针
     int pc_ = 0;    // 程序计数器
