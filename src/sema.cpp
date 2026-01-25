@@ -27,20 +27,33 @@ std::shared_ptr<Type> Sema::stringToType(const std::string& type_name) {
 }
 
 bool Sema::analyze(ProgramNode* program) {
-    // 先分析所有结构体定义
+    // 先分析所有结构体定义（结构体前向声明需要）
     for (const auto& struct_decl : program->getStructs()) {
         analyzeStructDecl(struct_decl.get());
     }
 
-    // 分析全局变量声明
-    for (const auto& global_var : program->getGlobalVars()) {
-        analyzeGlobalVarDecl(global_var.get());
+    // 按照源文件声明顺序分析全局变量和函数
+    // 这样可以检测出"使用未声明的全局变量"的错误
+    const auto& decl_order = program->getDeclarationOrder();
+    size_t struct_idx = 0;
+    size_t global_idx = 0;
+    size_t func_idx = 0;
+
+    for (int decl_type : decl_order) {
+        if (decl_type == 1) {  // global_var
+            if (global_idx < program->getGlobalVars().size()) {
+                analyzeGlobalVarDecl(program->getGlobalVars()[global_idx].get());
+                global_idx++;
+            }
+        } else if (decl_type == 2) {  // function
+            if (func_idx < program->getFunctions().size()) {
+                analyzeFunction(program->getFunctions()[func_idx].get());
+                func_idx++;
+            }
+        }
+        // struct (0) 已经在上面分析过了
     }
 
-    // 再分析所有函数定义
-    for (const auto& func : program->getFunctions()) {
-        analyzeFunction(func.get());
-    }
     return !hasErrors();
 }
 

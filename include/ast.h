@@ -531,17 +531,29 @@ private:
     std::vector<std::unique_ptr<StructDeclNode>> structs_;
     std::vector<std::unique_ptr<VarDeclStmtNode>> global_vars_;
 
+    // 声明顺序记录（用于 Sema 按源文件顺序分析）
+    // 0 = struct, 1 = global_var, 2 = function
+    std::vector<int> declaration_order_;
+
 public:
     void addFunction(std::unique_ptr<FunctionDeclNode> func) {
         functions_.push_back(std::move(func));
+        declaration_order_.push_back(2);  // function
     }
 
     void addStruct(std::unique_ptr<StructDeclNode> struct_decl) {
         structs_.push_back(std::move(struct_decl));
+        declaration_order_.push_back(0);  // struct
     }
 
     void addGlobalVar(std::unique_ptr<VarDeclStmtNode> global_var) {
         global_vars_.push_back(std::move(global_var));
+        declaration_order_.push_back(1);  // global_var
+    }
+
+    // 获取声明顺序（供 Sema 使用）
+    const std::vector<int>& getDeclarationOrder() const {
+        return declaration_order_;
     }
 
     const std::vector<std::unique_ptr<FunctionDeclNode>>& getFunctions() const {
