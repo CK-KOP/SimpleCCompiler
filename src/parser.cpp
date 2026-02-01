@@ -144,11 +144,11 @@ std::unique_ptr<ExprNode> Parser::parseTerm() {
 }
 
 std::unique_ptr<ExprNode> Parser::parseFactor() {
-    // 解析乘除法表达式: * 和 /
+    // 解析乘除法表达式: *, / 和 %
     std::unique_ptr<ExprNode> expr = parseUnary();
 
     // 检查乘除法运算符（左结合，比加减法优先级高）
-    while (match(TokenType::Multiply) || match(TokenType::Divide)) {
+    while (match(TokenType::Multiply) || match(TokenType::Divide) || match(TokenType::Modulo)) {
         TokenType op = currentToken_.getType();
         advance(); // 消费运算符
         std::unique_ptr<ExprNode> right = parseUnary();
@@ -609,7 +609,8 @@ Parser::Precedence Parser::getOperatorPrecedence(TokenType op) {
             return PREC_TERM;             // +, -
         case TokenType::Multiply:
         case TokenType::Divide:
-            return PREC_FACTOR;           // *, /
+        case TokenType::Modulo:
+            return PREC_FACTOR;           // *, /, %
         default:
             return PREC_LOWEST;           // 未知运算符最低优先级
     }

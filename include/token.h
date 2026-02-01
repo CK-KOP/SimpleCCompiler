@@ -18,6 +18,7 @@ enum class TokenType {
     Minus,          // -
     Multiply,       // *
     Divide,         // /
+    Modulo,         // %
 
     // 括号
     LParen,         // (

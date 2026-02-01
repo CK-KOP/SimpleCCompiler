@@ -79,6 +79,12 @@ Token Lexer::getNextToken() {
             }
             return Token(TokenType::Divide, "/", token_line, token_column);
         }
+        case '%': {
+            int token_line = line_;
+            int token_column = column_;
+            advance();
+            return Token(TokenType::Modulo, "%", token_line, token_column);
+        }
         case '(': {
             int token_line = line_;
             int token_column = column_;

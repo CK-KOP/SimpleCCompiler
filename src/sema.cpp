@@ -366,6 +366,13 @@ std::shared_ptr<Type> Sema::analyzeBinaryOp(BinaryOpNode* expr) {
         if (left_type->isVoid() || right_type->isVoid()) {
             error("void 类型的值不能用于表达式");
         }
+
+        // 取模运算符要求操作数必须是整数类型
+        if (expr->getOperator() == TokenType::Modulo) {
+            if (!left_type->isInt() || !right_type->isInt()) {
+                error("取模运算符 % 的操作数必须是整数类型");
+            }
+        }
     }
 
     // 简化：所有二元运算返回 int

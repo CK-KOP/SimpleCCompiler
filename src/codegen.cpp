@@ -682,6 +682,7 @@ void CodeGen::genBinaryOp(BinaryOpNode* expr) {
         case TokenType::Minus:        code_.emit(OpCode::SUB); break;
         case TokenType::Multiply:     code_.emit(OpCode::MUL); break;
         case TokenType::Divide:       code_.emit(OpCode::DIV); break;
+        case TokenType::Modulo:       code_.emit(OpCode::MOD); break;
         case TokenType::Equal:        code_.emit(OpCode::EQ);  break;
         case TokenType::NotEqual:     code_.emit(OpCode::NE);  break;
         case TokenType::Less:         code_.emit(OpCode::LT);  break;
@@ -1017,6 +1018,11 @@ int32_t CodeGen::evaluateConstExpr(ExprNode* expr) {
                     throw std::runtime_error("常量表达式中除以零");
                 }
                 return left / right;
+            case TokenType::Modulo:
+                if (right == 0) {
+                    throw std::runtime_error("常量表达式中对零取模");
+                }
+                return left % right;
             case TokenType::Equal:        return left == right ? 1 : 0;
             case TokenType::NotEqual:     return left != right ? 1 : 0;
             case TokenType::Less:         return left < right ? 1 : 0;
