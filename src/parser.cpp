@@ -250,6 +250,28 @@ std::unique_ptr<ExprNode> Parser::parsePrimary() {
         return expr; // 返回括号内的表达式，括号在AST中消失
     }
 
+    // 初始化列表：{expr1, expr2, ...}
+    if (match(TokenType::LBrace)) {
+        advance(); // 消费{
+        auto init_list = std::make_unique<InitializerListNode>();
+
+        // 解析初始化列表元素
+        if (!match(TokenType::RBrace)) {
+            init_list->addElement(parseExpression());
+            while (match(TokenType::Comma)) {
+                advance(); // 消费,
+                // 允许尾随逗号：{1, 2, 3,}
+                if (match(TokenType::RBrace)) {
+                    break;
+                }
+                init_list->addElement(parseExpression());
+            }
+        }
+
+        consume(TokenType::RBrace, "期望 '}' 在初始化列表后");
+        return init_list;
+    }
+
     throw std::runtime_error("意外的Token: " + currentToken_.toString());
 }
 
@@ -642,9 +664,18 @@ std::unique_ptr<VarDeclStmtNode> Parser::parseVariableDeclaration() {
         consume(TokenType::RBracket, "期望 ']' 在数组大小后");
     }
 
+    // 数组声明：支持初始化列表
     if (!dims.empty()) {
+        std::unique_ptr<ExprNode> initializer = nullptr;
+
+        // 检查是否有初始化列表
+        if (match(TokenType::Assign)) {
+            advance(); // 消费=
+            initializer = parseExpression(); // 可以是初始化列表或单个表达式
+        }
+
         consume(TokenType::Semicolon, "期望分号");
-        return std::make_unique<VarDeclStmtNode>(varType, varName, std::move(dims));
+        return std::make_unique<VarDeclStmtNode>(varType, varName, std::move(dims), std::move(initializer));
     }
 
     std::unique_ptr<ExprNode> initializer = nullptr;
@@ -960,10 +991,18 @@ std::unique_ptr<VarDeclStmtNode> Parser::parseGlobalVarDeclaration() {
         consume(TokenType::RBracket, "期望 ']' 在数组大小后");
     }
 
-    // 如果是数组，不允许初始化（第一阶段）
+    // 如果是数组，支持初始化列表
     if (!dims.empty()) {
+        std::unique_ptr<ExprNode> initializer = nullptr;
+
+        // 检查是否有初始化列表
+        if (match(TokenType::Assign)) {
+            advance(); // 消费 =
+            initializer = parseExpression(); // 可以是初始化列表或单个表达式
+        }
+
         consume(TokenType::Semicolon, "期望分号");
-        return std::make_unique<VarDeclStmtNode>(varType, varName, std::move(dims));
+        return std::make_unique<VarDeclStmtNode>(varType, varName, std::move(dims), std::move(initializer));
     }
 
     // 普通变量：检查是否有初始化

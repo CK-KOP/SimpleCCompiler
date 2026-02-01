@@ -86,6 +86,13 @@ private:
     // 检查表达式是否是编译时常量
     // 用于全局变量初始化的语义检查
     bool isConstantExpression(ExprNode* expr);
+
+    // ========== 初始化列表检查 (Phase 7) ==========
+    // 检查数组初始化列表的合法性
+    void checkArrayInitializer(InitializerListNode* init_list, ArrayType* array_type, bool is_global);
+
+    // 检查结构体初始化列表的合法性
+    void checkStructInitializer(InitializerListNode* init_list, StructType* struct_type, bool is_global);
 };
 
 #endif // SEMA_H

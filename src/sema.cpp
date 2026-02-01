@@ -178,15 +178,44 @@ void Sema::analyzeVarDecl(VarDeclStmtNode* stmt) {
     // 添加到符号表
     scope_.addSymbol(stmt->getName(), var_type);
 
-    // 分析初始化表达式（数组暂不支持初始化）
+    // 分析初始化表达式
     if (stmt->hasInitializer()) {
-        auto init_type = analyzeExpression(stmt->getInitializer());
-        if (init_type->isVoid()) {
-            error("void 类型的值不能用于初始化变量");
-        }
-        // 检查初始化器类型是否与变量类型兼容
-        if (!isTypeCompatible(var_type, init_type)) {
-            error("初始化类型不兼容：不能将 " + init_type->toString() + " 类型赋值给 " + var_type->toString() + " 类型");
+        auto* initializer = stmt->getInitializer();
+
+        // 检查是否是初始化列表
+        if (auto* init_list = dynamic_cast<InitializerListNode*>(initializer)) {
+            // 初始化列表：可以用于数组、结构体或标量类型
+            if (auto* array_type = dynamic_cast<ArrayType*>(var_type.get())) {
+                checkArrayInitializer(init_list, array_type, false);  // false = 局部变量
+            } else if (auto* struct_type = dynamic_cast<StructType*>(var_type.get())) {
+                checkStructInitializer(init_list, struct_type, false);
+            } else {
+                // 标量类型：只能有一个元素
+                if (init_list->getElementCount() != 1) {
+                    error("标量类型的初始化列表只能包含一个元素");
+                    return;
+                }
+                // 检查元素类型
+                auto elem_type = analyzeExpression(init_list->getElements()[0].get());
+                if (elem_type->isVoid()) {
+                    error("void 类型的值不能用于初始化变量");
+                    return;
+                }
+                if (!isTypeCompatible(var_type, elem_type)) {
+                    error("初始化类型不兼容：不能将 " + elem_type->toString() + " 类型赋值给 " + var_type->toString() + " 类型");
+                    return;
+                }
+            }
+        } else {
+            // 单个表达式初始化
+            auto init_type = analyzeExpression(initializer);
+            if (init_type->isVoid()) {
+                error("void 类型的值不能用于初始化变量");
+            }
+            // 检查初始化器类型是否与变量类型兼容
+            if (!isTypeCompatible(var_type, init_type)) {
+                error("初始化类型不兼容：不能将 " + init_type->toString() + " 类型赋值给 " + var_type->toString() + " 类型");
+            }
         }
     }
 }
@@ -614,23 +643,54 @@ void Sema::analyzeGlobalVarDecl(VarDeclStmtNode* global_var) {
 
     // 如果有初始化器，分析初始化表达式
     if (global_var->hasInitializer()) {
-        auto init_type = analyzeExpression(global_var->getInitializer());
-        if (!init_type) {
-            error("无法分析初始化表达式的类型");
-            return;
-        }
+        auto* initializer = global_var->getInitializer();
 
-        // 检查类型兼容性
-        if (!isTypeCompatible(var_type, init_type)) {
-            error("全局变量初始化类型不匹配: 不能将 " + init_type->toString() +
-                  " 类型赋值给 " + var_type->toString() + " 类型");
-            return;
-        }
+        // 检查是否是初始化列表
+        if (auto* init_list = dynamic_cast<InitializerListNode*>(initializer)) {
+            // 初始化列表：可以用于数组、结构体或标量类型
+            if (auto* array_type = dynamic_cast<ArrayType*>(var_type.get())) {
+                checkArrayInitializer(init_list, array_type, true);
+            } else if (auto* struct_type = dynamic_cast<StructType*>(var_type.get())) {
+                checkStructInitializer(init_list, struct_type, true);
+            } else {
+                // 标量类型：只能有一个元素
+                if (init_list->getElementCount() != 1) {
+                    error("标量类型的初始化列表只能包含一个元素");
+                    return;
+                }
+                // 检查元素类型
+                auto elem_type = analyzeExpression(init_list->getElements()[0].get());
+                if (!isTypeCompatible(var_type, elem_type)) {
+                    error("初始化类型不匹配: 不能将 " + elem_type->toString() +
+                          " 类型赋值给 " + var_type->toString() + " 类型");
+                    return;
+                }
+                // 检查是否是常量表达式
+                if (!isConstantExpression(init_list->getElements()[0].get())) {
+                    error("全局变量 '" + global_var->getName() + "' 的初始化器必须是编译时常量表达式");
+                    return;
+                }
+            }
+        } else {
+            // 单个表达式初始化
+            auto init_type = analyzeExpression(initializer);
+            if (!init_type) {
+                error("无法分析初始化表达式的类型");
+                return;
+            }
 
-        // ========== Phase 6: 检查是否是常量表达式 ==========
-        if (!isConstantExpression(global_var->getInitializer())) {
-            error("全局变量 '" + global_var->getName() + "' 的初始化器必须是编译时常量表达式");
-            return;
+            // 检查类型兼容性
+            if (!isTypeCompatible(var_type, init_type)) {
+                error("全局变量初始化类型不匹配: 不能将 " + init_type->toString() +
+                      " 类型赋值给 " + var_type->toString() + " 类型");
+                return;
+            }
+
+            // ========== Phase 6: 检查是否是常量表达式 ==========
+            if (!isConstantExpression(initializer)) {
+                error("全局变量 '" + global_var->getName() + "' 的初始化器必须是编译时常量表达式");
+                return;
+            }
         }
     }
 }
@@ -681,4 +741,80 @@ bool Sema::isConstantExpression(ExprNode* expr) {
 
     // 5. 其他表达式类型（函数调用、数组访问等）都不是常量
     return false;
+}
+
+// ========== 初始化列表检查 (Phase 7) ==========
+
+void Sema::checkArrayInitializer(InitializerListNode* init_list, ArrayType* array_type, bool is_global) {
+    const auto& elements = init_list->getElements();
+
+    // 1. 检查数量：初始化列表元素不能超过数组大小
+    if (elements.size() > static_cast<size_t>(array_type->getSize())) {
+        error("数组初始化列表元素过多：数组大小为 " + std::to_string(array_type->getSize()) +
+              "，但提供了 " + std::to_string(elements.size()) + " 个元素");
+        return;
+    }
+
+    // 2. 检查每个元素
+    for (size_t i = 0; i < elements.size(); i++) {
+        auto& elem = elements[i];
+
+        // Phase 1: 不支持嵌套初始化列表
+        if (dynamic_cast<InitializerListNode*>(elem.get())) {
+            error("暂不支持嵌套初始化列表");
+            return;
+        }
+
+        // 全局变量：必须是常量表达式
+        if (is_global && !isConstantExpression(elem.get())) {
+            error("全局数组初始化列表的第 " + std::to_string(i + 1) + " 个元素必须是编译时常量表达式");
+            return;
+        }
+
+        // 类型检查：元素类型必须与数组元素类型兼容
+        auto elem_type = analyzeExpression(elem.get());
+        if (!isTypeCompatible(array_type->getElementType(), elem_type)) {
+            error("数组初始化列表的第 " + std::to_string(i + 1) + " 个元素类型不匹配：期望 " +
+                  array_type->getElementType()->toString() + "，实际 " + elem_type->toString());
+            return;
+        }
+    }
+}
+
+void Sema::checkStructInitializer(InitializerListNode* init_list, StructType* struct_type, bool is_global) {
+    const auto& elements = init_list->getElements();
+    const auto& members = struct_type->getMembers();
+
+    // 1. 检查数量：初始化列表元素不能超过结构体成员数
+    if (elements.size() > members.size()) {
+        error("结构体初始化列表元素过多：结构体有 " + std::to_string(members.size()) +
+              " 个成员，但提供了 " + std::to_string(elements.size()) + " 个元素");
+        return;
+    }
+
+    // 2. 检查每个元素
+    for (size_t i = 0; i < elements.size(); i++) {
+        auto& elem = elements[i];
+
+        // Phase 1: 不支持嵌套初始化列表
+        if (dynamic_cast<InitializerListNode*>(elem.get())) {
+            error("暂不支持嵌套初始化列表");
+            return;
+        }
+
+        // 全局变量：必须是常量表达式
+        if (is_global && !isConstantExpression(elem.get())) {
+            error("全局结构体初始化列表的第 " + std::to_string(i + 1) + " 个元素必须是编译时常量表达式");
+            return;
+        }
+
+        // 类型检查：元素类型必须与对应成员类型兼容
+        auto elem_type = analyzeExpression(elem.get());
+        const auto& [member_name, member_type] = members[i];
+        if (!isTypeCompatible(member_type, elem_type)) {
+            error("结构体初始化列表的第 " + std::to_string(i + 1) + " 个元素类型不匹配：期望 " +
+                  member_type->toString() + "（成员 '" + member_name + "'），实际 " + elem_type->toString());
+            return;
+        }
+    }
 }

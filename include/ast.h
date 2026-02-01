@@ -31,6 +31,38 @@ public:
     std::shared_ptr<Type> getResolvedType() const { return resolved_type_; }
 };
 
+// 初始化列表节点：{expr1, expr2, ...}
+// 用于数组和结构体的初始化
+class InitializerListNode : public ExprNode {
+private:
+    std::vector<std::unique_ptr<ExprNode>> elements_;
+
+public:
+    InitializerListNode() = default;
+
+    void addElement(std::unique_ptr<ExprNode> elem) {
+        elements_.push_back(std::move(elem));
+    }
+
+    const std::vector<std::unique_ptr<ExprNode>>& getElements() const {
+        return elements_;
+    }
+
+    size_t getElementCount() const {
+        return elements_.size();
+    }
+
+    std::string toString() const override {
+        std::string result = "InitializerList(";
+        for (size_t i = 0; i < elements_.size(); ++i) {
+            if (i > 0) result += ", ";
+            result += elements_[i]->toString();
+        }
+        result += ")";
+        return result;
+    }
+};
+
 // 数字字面量节点
 class NumberNode : public ExprNode {
 private:
@@ -180,9 +212,9 @@ public:
     VarDeclStmtNode(const std::string& type, const std::string& name, std::unique_ptr<ExprNode> initializer = nullptr)
         : type_(type), name_(name), initializer_(std::move(initializer)) {}
 
-    // 数组声明（支持多维）
-    VarDeclStmtNode(const std::string& type, const std::string& name, std::vector<int> dims)
-        : type_(type), name_(name), initializer_(nullptr), array_dims_(std::move(dims)) {}
+    // 数组声明（支持多维，支持初始化列表）
+    VarDeclStmtNode(const std::string& type, const std::string& name, std::vector<int> dims, std::unique_ptr<ExprNode> initializer = nullptr)
+        : type_(type), name_(name), initializer_(std::move(initializer)), array_dims_(std::move(dims)) {}
 
     const std::string& getType() const { return type_; }
     const std::string& getName() const { return name_; }
