@@ -1,5 +1,5 @@
 // 控制流综合测试
-// 测试 if-else, for, while, do-while, break, continue 的���合使用
+// 测试 if-else, for, while, do-while, break, continue 的整合使用
 
 int main() {
     int sum = 0;

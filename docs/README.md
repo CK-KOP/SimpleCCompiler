@@ -2,81 +2,45 @@
 
 ## 项目概述
 
-SimpleC 是一个 C 语言子��编译器，支持结构体、指针、数组等核心特性。本文档目录包含了项目的设计、开发和优化文档。
+SimpleC 是一个 C 语言子集编译器，支持结构体、指针、数组、全局变量、初始化列表等核心特性。本文档目录包含了项目的设计、开发和优化文档。
 
 ---
 
-## 核心文档
+## 📚 文档结构
 
-### 📋 [开发计划](development-plan.md)
+```
+docs/
+├── README.md                    # 本文件 - 文档导航
+├── compilation-flow.md          # 编译流程说明（总文档）
+├── development-plan.md          # 开发计划与进度（总文档）
+├── dev-notes.md                 # 开发笔记与问题记录（总文档）
+└── phases/                      # 具体开发阶段的文档
+    ├── codegen-optimization.md
+    ├── phase6_global_variables.md
+    └── phase7_initialization_lists.md
+```
+
+---
+
+## 🎯 总文档（核心文档）
+
+### 1. 📋 [开发计划与进度](development-plan.md)
 **项目总体规划和技术路线图**
 
-- **关键技术挑战**：语法歧义问题、结构体多义性等
-- **实现分阶段**：从基础结���体到自引用的完整路线
-- **当前进度**：
-  - ✅ 阶段一：基础结构体（已完成）
-  - ✅ 阶段二：结构体指针、嵌套、数组（已完成）
-  - ✅ 阶段三：函数参数和返回值（已完成）
-  - ✅ 阶段四：结构体整体赋值（已完成）
-  - ⏳ 阶段五：初始化列表（待实现）
-  - 🔄 阶段六：全局变量（实现中）
-  - ⏳ 阶段七：自引用结构体（可选）
+**当前进度**（2026-02-01）：
+- ✅ 阶段一：基础结构体
+- ✅ 阶段二：结构体指针、嵌套、数组
+- ✅ 阶段三：函数参数和返回值
+- ✅ 阶段四：结构体整体赋值
+- ✅ 阶段五：初始化列表（Phase 1 平面初始化）
+- ✅ 阶段六：全局变量
+- ⏳ 阶段七：自引用结构体（可选）
 
 **适合人群**：了解项目整体规划的技术决策者
 
 ---
 
-### 🚀 [CodeGen 优化完成总结](codegen-optimization.md)
-**代码生成器优化的完整记录**
-
-**优化内容**：
-- ✅ Phase 1: 类型判断辅助函数（8个辅助函数）
-- ✅ Phase 2: 统一变量分配接口（allocateVariable）
-- ✅ Phase 3: 统一变量管理系统（VariableInfo）
-
-**核心成果**：
-- 消除了 20+ 处重复的类型检查代码
-- 统一了变量分配接口（genVarDecl: 42行→26行）
-- 完全删除了旧的分散式变量管理系统
-- 支持嵌套作用域
-- 所有 13 个测试用例通过
-
-**适合人群**：想要了解代码优化细节的开发者
-
----
-
-### 🌍 [Phase 6: 全局变量设计](phase6-global-variables-design.md)
-**全局变量实现的完整设计方案**
-
-**设计内容**：
-- 全局变量内存布局
-- VM 架构调整（全局数据区）
-- 新增指令（LOADG, STOREG, LEAG）
-- 符号表修改
-- 实现步骤和测试方案
-
-**前置条件**：
-- 已有 VariableInfo 结构（is_global 标记）
-- 已有 next_global_offset_ 计数器
-- 已有 allocateGlobalVariable 接口框架
-
-**适合人群**：准备实现全局变量功能的开发者
-
----
-
-### 📝 [开发笔记](dev-notes.md)
-**开发过程中的临时笔记和TODO**
-
-**内容**：
-- 当前正在进行的工作
-- 发现的问题和临时解决方案
-- 待完成的任务清单
-
-**适合人群**：参与日常开发的维护者
-
----
-
-### 🔧 [编译流程](compilation-flow.md)
+### 2. 🔧 [编译流程说明](compilation-flow.md)
 **编译器各阶段的详细说明**
 
 **内容**：
@@ -90,80 +54,148 @@ SimpleC 是一个 C 语言子��编译器，支持结构体、指针、数组
 
 ---
 
-## 文档关系图
+### 3. 📝 [开发笔记](dev-notes.md)
+**开发过程中的问题记录和解决方案**
 
-```
-docs/
-├── README.md (本文件) - 文档导航
-├── development-plan.md - 项目总体规划
-├── codegen-optimization.md - 代码生成器优化记录
-├── phase6-global-variables-design.md - Phase 6 设计方案
-├── dev-notes.md - 开发笔记
-└── compilation-flow.md - 编译流程说明
-```
+**内容**：
+- 遇到的技术问题
+- 解决方案和经验总结
+- 待完成的任务清单
+- 临时笔记和想法
+
+**适合人群**：参与日常开发的维护者，想要学习问题解决思路的开发者
 
 ---
 
-## 快速导航
+## 📂 具体开发阶段文档
+
+### Phase 6: 全局变量
+
+#### [全局变量实现报告](phases/phase6_global_variables.md)
+**完整的实现文档**
+
+**实现内容**：
+- 全局变量内存布局
+- VM 架构调整（全局数据区）
+- 新增指令（LOADG, STOREG, LEAG）
+- 符号表修改
+- 完整的测试验证
+
+**状态**：✅ 已完成（2026-01-31）
+
+---
+
+### Phase 7: 初始化列表
+
+#### [初始化列表实现报告](phases/phase7_initialization_lists.md)
+**Phase 1 平面初始化列表的完整实现**
+
+**实现内容**：
+- 数组初始化：`int arr[3] = {1, 2, 3};`
+- 结构体初始化：`struct Point p = {10, 20};`
+- 标量初始化：`int x = {42};`
+- 部分初始化（剩余元素补 0）
+- 全局/局部变量初始化
+- 完整的测试验证
+
+**状态**：✅ 已完成（2026-02-01）
+
+---
+
+### 代码生成器优化
+
+#### [CodeGen 优化完成总结](phases/codegen-optimization.md)
+**代码生成器优化的完整记录**
+
+**优化内容**：
+- ✅ Phase 1: 类型判断辅助函数（8个辅助函数）
+- ✅ Phase 2: 统一变量分配接口（allocateVariable）
+- ✅ Phase 3: 统一变量管理系统（VariableInfo）
+
+**核心成果**：
+- 消除了 20+ 处重复的类型检查代码
+- 统一了变量分配接口（genVarDecl: 42行→26行）
+- 完全删除了旧的分散式变量管理系统
+- 支持嵌套作用域
+- 所有测试用例通过
+
+---
+
+## 🚀 快速导航
 
 ### 按角色查找文档
 
 **项目新人**：
-1. 先读 [development-plan.md](development-plan.md) - 了解项目规划
-2. 再读 [compilation-flow.md](compilation-flow.md) - 理解编译流程
-3. 查看 [examples/](../examples/README.md) - 看测试用例
+1. [development-plan.md](development-plan.md) - 了解项目规划
+2. [compilation-flow.md](compilation-flow.md) - 理解编译流程
+3. [examples/](../examples/README.md) - 查看测试用例
 
 **开发人员**：
-1. 参考 [development-plan.md](development-plan.md) - 查看当前阶段
-2. 阅读 [codegen-optimization.md](codegen-optimization.md) - 了解代码结构
-3. 查看 [dev-notes.md](dev-notes.md) - 了解当前工作
+1. [development-plan.md](development-plan.md) - 查看当前阶段
+2. [phases/codegen-optimization.md](phases/codegen-optimization.md) - 了解代码结构
+3. [dev-notes.md](dev-notes.md) - 了解当前工作和问题
 
 **架构师**：
 1. [development-plan.md](development-plan.md) - 技术路线
-2. [phase6-global-variables-design.md](phase6-global-variables-design.md) - 设计方案
-3. [codegen-optimization.md](codegen-optimization.md) - 优化策略
+2. [phases/phase6_global_variables.md](phases/phase6_global_variables.md) - 设计方案
+3. [phases/codegen-optimization.md](phases/codegen-optimization.md) - 优化策略
 
 ### 按主题查找文档
 
 **结构体实现**：
-- [development-plan.md](development-plan.md) - 阶段一到阶段七
+- [development-plan.md](development-plan.md) - 阶段一到阶段七的完整规划
 
-**代码生成优化**：
-- [codegen-optimization.md](codegen-optimization.md) - 完整优化记录
+**初始化列表**：
+- [phases/phase7_initialization_lists.md](phases/phase7_initialization_lists.md) - 完整实现报告
 
 **全局变量**：
-- [phase6-global-variables-design.md](phase6-global-variables-design.md) - 设计方案
-- [codegen-optimization.md](codegen-optimization.md) - 基础设施准备
+- [phases/phase6_global_variables.md](phases/phase6_global_variables.md) - 完整实现报告
+
+**代码生成优化**：
+- [phases/codegen-optimization.md](phases/codegen-optimization.md) - 完整优化录
 
 **编译器原理**：
 - [compilation-flow.md](compilation-flow.md) - 各阶段说明
 
 ---
 
-## 当前项目状态 (2026-01-21)
+## 📊 当前项目状态 (2026-02-01)
 
 ### ✅ 已完成
-- 基础结构体（阶段一）
-- 结构体指针、嵌套、数组（阶段二）
-- 结构体函数参数和返回值（阶段三）
-- 结构体整体赋值（阶段四）
-- CodeGen 优化（类型辅助函数、统一变量管理）
-
-### 🔄 进行中
-- 全局变量支持（阶段六）
+- ✅ 基础结构体（阶段一）
+- ✅ 结构体指针、嵌套、数组（阶段二）
+- ✅ 结构体函数参数和返回值（阶段三）
+- ✅ 结构体整体赋值（阶段四）
+- ✅ 初始化列表 - Phase 1 平面初始化（阶段五）
+- ✅ 全局变量支持（阶段六）
+- ✅ CodeGen 优化（类型辅助函数、统一变量管理）
 
 ### ⏳ 待实现
-- 初始化列表（阶段五）
-- 自引用结构体（阶段七，可选）
+- ⏳ 初始化列表 - Phase 2 嵌套初始化（可选）
+- ⏳ 自引用结构体（阶段七，可选）
 
 ---
 
-## 文档维护规范
+## 📝 文档维护规范
+
+### 文档分类
+
+**总文档**（放在 docs/ 根目录）：
+- `compilation-flow.md` - 程序运行流程
+- `development-plan.md` - 开发计划与进度
+- `dev-notes.md` - 开发笔记与问题记录
+
+**具体开发文档**（放在 docs/phases/ 目录）：
+- Phase 相关的设计文档
+- 具体功能的实现报告
+- 优化和重构记录
 
 ### 新增文档
-1. 使用清晰的文件名（小写英文，连字符分隔）
-2. 在本 README 中添加索引
-3. 更新相关文档的交叉引用
+1. 确定文档类型（总文档 vs 具体开发文档）
+2. 放在对应目录（docs/ vs docs/phases/）
+3. 使用清晰的文件名（小写英文，连字符分隔）
+4. 在本 README 中添加索引
+5. 更新相关文档的交叉引用
 
 ### 更新文档
 1. 在文档顶部标注最后更新日期
@@ -177,5 +209,5 @@ docs/
 
 ---
 
-**最后更新**: 2026-01-21
+**最后更新**: 2026-02-01
 **维护者**: KOP
