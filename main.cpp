@@ -6,18 +6,20 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <chrono>
 
 void printUsage(const char* program) {
     std::cout << "SimpleC 编译器\n";
     std::cout << "用法: " << program << " <源文件> [选项]\n\n";
     std::cout << "选项:\n";
-    std::cout << "  -l, --lexer   仅进行词法分析\n";
-    std::cout << "  -p, --parser  仅进行语法分析\n";
-    std::cout << "  -s, --sema    进行语义分析\n";
-    std::cout << "  -r, --run     编译并运行（默认）\n";
-    std::cout << "  -c, --code    显示生成的字节码\n";
-    std::cout << "  -d, --debug   调试模式运行\n";
-    std::cout << "  -h, --help    显示帮助信息\n";
+    std::cout << "  -l, --lexer      仅进行词法分析\n";
+    std::cout << "  -p, --parser     仅进行语法分析\n";
+    std::cout << "  -s, --sema       进行语义分析\n";
+    std::cout << "  -r, --run        编译并运行（默认）\n";
+    std::cout << "  -c, --code       显示生成的字节码\n";
+    std::cout << "  -d, --debug      调试模式运行\n";
+    std::cout << "  -b, --benchmark  性能测试模式\n";
+    std::cout << "  -h, --help       显示帮助信息\n";
 }
 
 std::string readFile(const std::string& filename) {
@@ -101,7 +103,7 @@ void runSema(const std::string& source) {
     }
 }
 
-enum class Mode { Lexer, Parser, Sema, Run, Code };
+enum class Mode { Lexer, Parser, Sema, Run, Code, Benchmark };
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -128,6 +130,8 @@ int main(int argc, char* argv[]) {
             mode = Mode::Run;
         } else if (arg == "-c" || arg == "--code") {
             mode = Mode::Code;
+        } else if (arg == "-b" || arg == "--benchmark") {
+            mode = Mode::Benchmark;
         } else if (arg == "-d" || arg == "--debug") {
             debug = true;
         } else if (arg[0] != '-') {
@@ -159,6 +163,59 @@ int main(int argc, char* argv[]) {
             case Mode::Sema:
                 runSema(source);
                 break;
+            case Mode::Benchmark: {
+                std::cout << "=== 性能测试模式 ===\n\n";
+
+                // 测试 Lexer + Parser
+                auto start_parse = std::chrono::high_resolution_clock::now();
+                Lexer lexer1(source);
+                Parser parser1(lexer1);
+                auto program = parser1.parseProgram();
+                auto end_parse = std::chrono::high_resolution_clock::now();
+                auto parse_time = std::chrono::duration_cast<std::chrono::microseconds>(end_parse - start_parse);
+
+                // 测试 Sema
+                auto start_sema = std::chrono::high_resolution_clock::now();
+                Sema sema;
+                bool sema_success = sema.analyze(program.get());
+                auto end_sema = std::chrono::high_resolution_clock::now();
+                auto sema_time = std::chrono::duration_cast<std::chrono::microseconds>(end_sema - start_sema);
+
+                if (!sema_success) {
+                    std::cout << "✗ 语义分析失败\n";
+                    return 1;
+                }
+
+                // 测试 CodeGen
+                auto start_codegen = std::chrono::high_resolution_clock::now();
+                CodeGen codegen;
+                ByteCode bytecode = codegen.generate(program.get());
+                auto end_codegen = std::chrono::high_resolution_clock::now();
+                auto codegen_time = std::chrono::duration_cast<std::chrono::microseconds>(end_codegen - start_codegen);
+
+                // 测试 VM
+                auto start_vm = std::chrono::high_resolution_clock::now();
+                VM vm;
+                int result = vm.execute(bytecode);
+                auto end_vm = std::chrono::high_resolution_clock::now();
+                auto vm_time = std::chrono::duration_cast<std::chrono::microseconds>(end_vm - start_vm);
+
+                // 总时间
+                auto total_time = parse_time + sema_time + codegen_time + vm_time;
+
+                // 输出结果
+                std::cout << "性能测试结果:\n";
+                std::cout << "----------------------------------------\n";
+                std::cout << "Lexer + Parser: " << parse_time.count() << " μs\n";
+                std::cout << "Sema:           " << sema_time.count() << " μs\n";
+                std::cout << "CodeGen:        " << codegen_time.count() << " μs\n";
+                std::cout << "VM:             " << vm_time.count() << " μs\n";
+                std::cout << "----------------------------------------\n";
+                std::cout << "总编译时间:     " << (parse_time + sema_time + codegen_time).count() << " μs\n";
+                std::cout << "总执行时间:     " << total_time.count() << " μs\n";
+                std::cout << "程序返回值:     " << result << "\n";
+                break;
+            }
             case Mode::Run:
             case Mode::Code: {
                 Lexer lexer(source);
