@@ -69,18 +69,17 @@ ByteCode CodeGen::generate(ProgramNode* program) {
         GlobalVarInit init;
         init.offset = info->offset;
         init.slot_count = info->slot_count;
-        init.has_init = false;
-        init.init_value = 0;
 
         if (global_var->hasInitializer()) {
-            // 只支持常量初始化
-            auto* num = dynamic_cast<NumberNode*>(global_var->getInitializer());
-            if (!num) {
-                throw std::runtime_error("全局变量只能用常量初始化: " + global_var->getName());
+            // 使用 evaluateConstExpr 求值常量表达式
+            try {
+                int32_t value = evaluateConstExpr(global_var->getInitializer());
+                init.init_data.push_back(value);
+            } catch (const std::runtime_error& e) {
+                throw std::runtime_error("全局变量 '" + global_var->getName() + "' 初始化失败: " + e.what());
             }
-            init.init_value = num->getValue();
-            init.has_init = true;
         }
+        // 如果没有初始化器，init_data 为空，VM 会自动初始化为 0
 
         code_.global_inits.push_back(init);
     }
@@ -961,4 +960,85 @@ void CodeGen::genMemberAccessAddr(MemberAccessNode* expr) {
     } else {
         throw std::runtime_error("Unsupported member access pattern");
     }
+}
+
+// ========== 常量表达式求值 (Phase 6) ==========
+
+int32_t CodeGen::evaluateConstExpr(ExprNode* expr) {
+    // 1. 数字字面量
+    if (auto* num = dynamic_cast<NumberNode*>(expr)) {
+        return num->getValue();
+    }
+
+    // 2. 二元运算表达式
+    if (auto* binop = dynamic_cast<BinaryOpNode*>(expr)) {
+        int32_t left = evaluateConstExpr(binop->getLeft());
+        int32_t right = evaluateConstExpr(binop->getRight());
+
+        switch (binop->getOperator()) {
+            case TokenType::Plus:     return left + right;
+            case TokenType::Minus:    return left - right;
+            case TokenType::Multiply: return left * right;
+            case TokenType::Divide:
+                if (right == 0) {
+                    throw std::runtime_error("常量表达式中除以零");
+                }
+                return left / right;
+            case TokenType::Equal:        return left == right ? 1 : 0;
+            case TokenType::NotEqual:     return left != right ? 1 : 0;
+            case TokenType::Less:         return left < right ? 1 : 0;
+            case TokenType::LessEqual:    return left <= right ? 1 : 0;
+            case TokenType::Greater:      return left > right ? 1 : 0;
+            case TokenType::GreaterEqual: return left >= right ? 1 : 0;
+            case TokenType::LogicalAnd:   return (left && right) ? 1 : 0;
+            case TokenType::LogicalOr:    return (left || right) ? 1 : 0;
+            default:
+                throw std::runtime_error("常量表达式中不支持的二元运算符");
+        }
+    }
+
+    // 3. 一元运算表达式
+    if (auto* unary = dynamic_cast<UnaryOpNode*>(expr)) {
+        switch (unary->getOperator()) {
+            case TokenType::Minus: {
+                // 负数: -expr
+                int32_t value = evaluateConstExpr(unary->getOperand());
+                return -value;
+            }
+            case TokenType::LogicalNot: {
+                // 逻辑非: !expr
+                int32_t value = evaluateConstExpr(unary->getOperand());
+                return value == 0 ? 1 : 0;
+            }
+            case TokenType::Ampersand: {
+                // 取地址: &global_var
+                auto* var = dynamic_cast<VariableNode*>(unary->getOperand());
+                if (!var) {
+                    throw std::runtime_error("取地址运算符只能用于变量");
+                }
+
+                // 检查是否是全局变量
+                if (!isGlobalVariable(var->getName())) {
+                    throw std::runtime_error("全局变量初始化中只能取全局变量的地址: " + var->getName());
+                }
+
+                // 返回全局地址: GLOBAL_BASE + offset
+                const VariableInfo* info = findVariable(var->getName());
+                if (!info) {
+                    throw std::runtime_error("未找到全局变量: " + var->getName());
+                }
+                return VM::GLOBAL_BASE + info->offset;
+            }
+            default:
+                throw std::runtime_error("常量表达式中不支持的一元运算符");
+        }
+    }
+
+    // 4. 变量引用（只允许全局变量，但这通常不是常量）
+    if (auto* var = dynamic_cast<VariableNode*>(expr)) {
+        throw std::runtime_error("全局变量初始化不能使用其他变量的值: " + var->getName());
+    }
+
+    // 5. 其他表达式类型不支持
+    throw std::runtime_error("全局变量初始化必须是编译时常量表达式");
 }

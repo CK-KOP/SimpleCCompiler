@@ -90,6 +90,15 @@ private:
     int getSlotCount(std::shared_ptr<Type> type) const;
     bool hasValidType(ExprNode* node) const;
     std::shared_ptr<Type> getType(ExprNode* node) const;
+
+    // ========== 常量表达式求值 (Phase 6) ==========
+    // 在编译时求值常量表达式，用于全局变量初始化
+    // 支持：
+    //   - 数字字面量: 42
+    //   - 算术表达式: 10 + 20, 5 * 3
+    //   - 取地址: &global_var
+    //   - 负数: -10
+    int32_t evaluateConstExpr(ExprNode* expr);
 };
 
 #endif // CODEGEN_H

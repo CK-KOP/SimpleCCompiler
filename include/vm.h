@@ -68,10 +68,17 @@ struct Instruction {
 struct GlobalVarInit {
     int offset;           // 全局变量偏移
     int slot_count;       // 占用的 slot 数
-    int32_t init_value;   // 初始值（仅用于常量初始化）
-    bool has_init;        // 是否有初始化器
+    std::vector<int32_t> init_data;  // 初始化数据（可以是多个值）
 
-    GlobalVarInit() : offset(0), slot_count(0), init_value(0), has_init(false) {}
+    // init_data 为空 = 全部初始化为 0
+    // init_data 有值 = 按顺序初始化每个 slot，剩余 slot 初始化为 0
+    // 支持：
+    //   - 单值：{42} → int x = 42;
+    //   - 多值：{1, 2, 3} → int arr[3] = {1, 2, 3};
+    //   - 指针：{GLOBAL_BASE + offset} → int *p = &global_x;
+    //   - 结构体：{10, 20} → struct Point p = {10, 20};
+
+    GlobalVarInit() : offset(0), slot_count(0) {}
 };
 
 // 字节码程序
@@ -97,9 +104,11 @@ public:
 
 // 栈式虚拟机
 class VM {
+public:
+    static const int GLOBAL_BASE = 0x40000000;  // 全局变量地址基址（Phase 6）
+
 private:
     static const int STACK_SIZE = 4096;
-    static const int GLOBAL_BASE = 0x40000000;  // 全局变量地址基址（Phase 6）
 
     std::vector<int32_t> stack_;
     std::vector<int32_t> globals_;  // 全局变量存储区（Phase 6）

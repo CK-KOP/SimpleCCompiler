@@ -85,10 +85,18 @@ int VM::execute(const ByteCode& bytecode) {
 
     // 初始化全局变量存储区 (Phase 6)
     for (const auto& init : bytecode.global_inits) {
-        for (int i = 0; i < init.slot_count; i++) {
-            if (init.has_init && i == 0) {
-                globals_.push_back(init.init_value);
-            } else {
+        if (init.init_data.empty()) {
+            // 没有初始化数据，全部初始化为 0
+            for (int i = 0; i < init.slot_count; i++) {
+                globals_.push_back(0);
+            }
+        } else {
+            // 使用提供的初始化数据
+            for (size_t i = 0; i < init.init_data.size() && i < (size_t)init.slot_count; i++) {
+                globals_.push_back(init.init_data[i]);
+            }
+            // 剩余 slot 初始化为 0
+            for (size_t i = init.init_data.size(); i < (size_t)init.slot_count; i++) {
                 globals_.push_back(0);
             }
         }

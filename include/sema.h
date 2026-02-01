@@ -81,6 +81,11 @@ private:
     // 辅助方法
     std::shared_ptr<Type> stringToType(const std::string& type_name);
     bool isTypeCompatible(const std::shared_ptr<Type>& left, const std::shared_ptr<Type>& right);
+
+    // ========== 常量表达式检查 (Phase 6) ==========
+    // 检查表达式是否是编译时常量
+    // 用于全局变量初始化的语义检查
+    bool isConstantExpression(ExprNode* expr);
 };
 
 #endif // SEMA_H

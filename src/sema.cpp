@@ -624,6 +624,61 @@ void Sema::analyzeGlobalVarDecl(VarDeclStmtNode* global_var) {
         if (!isTypeCompatible(var_type, init_type)) {
             error("全局变量初始化类型不匹配: 不能将 " + init_type->toString() +
                   " 类型赋值给 " + var_type->toString() + " 类型");
+            return;
+        }
+
+        // ========== Phase 6: 检查是否是常量表达式 ==========
+        if (!isConstantExpression(global_var->getInitializer())) {
+            error("全局变量 '" + global_var->getName() + "' 的初始化器必须是编译时常量表达式");
+            return;
         }
     }
+}
+
+// ========== 常量表达式检查 (Phase 6) ==========
+
+bool Sema::isConstantExpression(ExprNode* expr) {
+    if (!expr) return false;
+
+    // 1. 数字字面量是常量
+    if (dynamic_cast<NumberNode*>(expr)) {
+        return true;
+    }
+
+    // 2. 二元运算：两个操作数都是常量
+    if (auto* binop = dynamic_cast<BinaryOpNode*>(expr)) {
+        return isConstantExpression(binop->getLeft()) &&
+               isConstantExpression(binop->getRight());
+    }
+
+    // 3. 一元运算
+    if (auto* unary = dynamic_cast<UnaryOpNode*>(expr)) {
+        switch (unary->getOperator()) {
+            case TokenType::Minus:      // 负数: -expr
+            case TokenType::LogicalNot: // 逻辑非: !expr
+                return isConstantExpression(unary->getOperand());
+
+            case TokenType::Ampersand: {
+                // 取地址: &global_var
+                // 只允许取全局变量的地址
+                auto* var = dynamic_cast<VariableNode*>(unary->getOperand());
+                if (!var) {
+                    return false;  // 只能取变量的地址
+                }
+                // 检查是否是全局变量
+                return global_symbols_.find(var->getName()) != global_symbols_.end();
+            }
+
+            default:
+                return false;
+        }
+    }
+
+    // 4. 变量引用：不是常量（即使是全局变量）
+    if (dynamic_cast<VariableNode*>(expr)) {
+        return false;
+    }
+
+    // 5. 其他表达式类型（函数调用、数组访问等）都不是常量
+    return false;
 }
