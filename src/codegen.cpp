@@ -71,12 +71,27 @@ ByteCode CodeGen::generate(ProgramNode* program) {
         init.slot_count = info->slot_count;
 
         if (global_var->hasInitializer()) {
-            // 使用 evaluateConstExpr 求值常量表达式
-            try {
-                int32_t value = evaluateConstExpr(global_var->getInitializer());
-                init.init_data.push_back(value);
-            } catch (const std::runtime_error& e) {
-                throw std::runtime_error("全局变量 '" + global_var->getName() + "' 初始化失败: " + e.what());
+            auto* initializer = global_var->getInitializer();
+
+            // 检查是否是初始化列表
+            if (auto* init_list = dynamic_cast<InitializerListNode*>(initializer)) {
+                // 初始化列表：逐个求值元素
+                try {
+                    for (const auto& elem : init_list->getElements()) {
+                        int32_t value = evaluateConstExpr(elem.get());
+                        init.init_data.push_back(value);
+                    }
+                } catch (const std::runtime_error& e) {
+                    throw std::runtime_error("全局变量 '" + global_var->getName() + "' 初始化失败: " + e.what());
+                }
+            } else {
+                // 单个表达式初始化
+                try {
+                    int32_t value = evaluateConstExpr(initializer);
+                    init.init_data.push_back(value);
+                } catch (const std::runtime_error& e) {
+                    throw std::runtime_error("全局变量 '" + global_var->getName() + "' 初始化失败: " + e.what());
+                }
             }
         }
         // 如果没有初始化器，init_data 为空，VM 会自动初始化为 0
@@ -216,9 +231,27 @@ void CodeGen::genVarDecl(VarDeclStmtNode* stmt) {
 
     // 初始化变量
     if (stmt->hasInitializer()) {
-        // 有初始化器：执行初始化表达式
-        genExpression(stmt->getInitializer());
-        // 初始化器会将所有 slot 压栈，这些 slot 就是变量的存储空间
+        auto* initializer = stmt->getInitializer();
+
+        // 检查是否是初始化列表
+        if (auto* init_list = dynamic_cast<InitializerListNode*>(initializer)) {
+            // 初始化列表：逐个求值并压栈
+            const auto& elements = init_list->getElements();
+
+            // 1. 先求值所有元素并压栈
+            for (const auto& elem : elements) {
+                genExpression(elem.get());
+            }
+
+            // 2. 如果元素数量少于 slot_count，补0
+            for (size_t i = elements.size(); i < static_cast<size_t>(slot_count); i++) {
+                code_.emit(OpCode::PUSH, 0);
+            }
+        } else {
+            // 单个表达式初始化
+            genExpression(initializer);
+            // 初始化器会将所有 slot 压栈，这些 slot 就是变量的存储空间
+        }
     } else {
         // 无初始化器：初始化为 0
         for (int i = 0; i < slot_count; i++) {
